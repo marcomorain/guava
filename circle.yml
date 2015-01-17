@@ -1,0 +1,5 @@
+test:
+  pre:
+    - mkdir -p $CIRLE_TEST_REPORTS/junit/
+  post:
+    - find . -type f -regex ".*/target/surefire-reports/.*xml" -exec cp {} @CIRLE_TEST_REPORTS/junit/ \;
