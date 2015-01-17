@@ -1,4 +1,4 @@
-dependency:
+dependencies:
   overide:
     - true
 test:
