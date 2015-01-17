@@ -1,5 +1,5 @@
 machine:
-  enviroment:
+  environment:
     MAVEN_OPTS: "-Xmx2g -Xms2g"
 dependencies:
   override:
