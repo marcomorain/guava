@@ -1,4 +1,4 @@
-test:
+dependencies :
   pre:
     - mkdir -p $CIRLE_TEST_REPORTS/junit/
   post:
