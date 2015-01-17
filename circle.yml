@@ -1,6 +1,6 @@
 machine:
   environment:
-    MAVEN_OPTS: "-Xmx2g -Xms2g"
+    MAVEN_OPTS: "-Xmx1024m -Xms1024m"
 dependencies:
   override:
     - echo No dependencies
