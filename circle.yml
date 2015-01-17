@@ -1,5 +1,5 @@
 dependencies:
-  overide:
+  override:
     - true
 test:
   pre:
