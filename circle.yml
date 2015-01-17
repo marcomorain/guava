@@ -4,5 +4,7 @@ dependencies:
 test:
   pre:
     - mkdir -p $CIRCLE_TEST_REPORTS/junit/
+  override:
+    - mvn dependency:resolve
   post:
     - find . -type f -regex ".*/target/surefire-reports/.*xml" -exec cp {} @CIRCLE_TEST_REPORTS/junit/ \;
