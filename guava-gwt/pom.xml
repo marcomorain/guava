@@ -93,6 +93,8 @@
       <plugin>
         <artifactId>maven-surefire-plugin</artifactId>
         <configuration>
+
+            <argLine>-Xmx1g -Xms1g</argLine>
           <skip>true</skip>
         </configuration>
       </plugin>
