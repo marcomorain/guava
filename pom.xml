@@ -177,6 +177,7 @@
           <artifactId>maven-surefire-plugin</artifactId>
           <version>2.7.2</version>
           <configuration>
+            <argLine>-Xmx1g -Xms1g</argLine>
             <includes>
               <include>${test.include}</include>
             </includes>
