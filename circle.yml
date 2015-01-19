@@ -5,7 +5,7 @@ dependencies:
   cache_directories:
     - "~/.m2"
   override:
-    - mvn compile  --projects guava,guava-testlib,guava-tests
+    - mvn compile test-compile --projects guava,guava-testlib,guava-tests
 test:
   override:
     - mvn compile test --projects guava,guava-testlib,guava-tests
