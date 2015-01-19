@@ -1,6 +1,6 @@
 machine:
   environment:
-    MAVEN_OPTS: "-Xmx1024m -Xms1024m"
+    MAVEN_OPTS: "-Xmx1024m -Xms1024m -Dmaven.artifact.threads=8"
 dependencies:
   override:
     - echo No dependencies
