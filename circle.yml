@@ -3,11 +3,10 @@ machine:
     MAVEN_OPTS: "-Xmx1024m -Xms1024m -Dmaven.artifact.threads=8"
 dependencies:
   override:
-    - echo No dependencies
+    - mvn test-compile
 test:
-  pre:
-    - mkdir -p $CIRCLE_TEST_REPORTS/junit/
   override:
     - mvn test
   post:
+    - mkdir -p $CIRCLE_TEST_REPORTS/junit/
     - find . -type f -regex ".*/target/surefire-reports/.*xml" -exec cp {} $CIRCLE_TEST_REPORTS/junit/ \;
