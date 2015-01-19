@@ -2,13 +2,11 @@ machine:
   environment:
     MAVEN_OPTS: "-Xmx1024m -Xms1024m -Dmaven.artifact.threads=8"
 dependencies:
-  cache_directories:
-    - "~/.m2"
   override:
     - mvn compile test-compile --projects guava,guava-testlib,guava-tests
 test:
   override:
-    - mvn compile test --projects guava,guava-testlib,guava-tests
+    - mvn test --projects guava,guava-testlib,guava-tests
   post:
     - mkdir -p $CIRCLE_TEST_REPORTS/junit/
     - find . -type f -regex ".*/target/surefire-reports/.*xml" -exec cp {} $CIRCLE_TEST_REPORTS/junit/ \;
