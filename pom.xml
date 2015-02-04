@@ -19,7 +19,7 @@
     <gpg.skip>true</gpg.skip>
     <!-- Override this with -Dtest.include="**/SomeTest.java" on the CLI -->
     <test.include>**/*Test.java</test.include>
-    <truth.version>0.24</truth.version>
+    <truth.version>0.25</truth.version>
   </properties>
   <issueManagement>
     <system>GitHub Issues</system>
@@ -55,6 +55,10 @@
       <timezone>-8</timezone>
     </developer>
   </developers>
+  <ciManagement>
+    <system>Travis CI</system>
+    <url>https://travis-ci.org/google/guava</url>
+  </ciManagement>
   <modules>
     <module>guava</module>
     <module>guava-gwt</module>

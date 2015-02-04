@@ -52,6 +52,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -79,6 +80,51 @@ import javax.annotation.Nullable;
 @Beta
 @GwtCompatible(emulated = true)
 public final class Futures {
+
+  // A note on memory visibility.
+  // Many of the utilities in this class (transform, withFallback, withTimeout, asList, combine)
+  // have two requirements that significantly complicate their design.
+  // 1. Cancellation should propagate from the returned future to the input future(s).
+  // 2. The returned futures shouldn't unnecessarily 'pin' their inputs after completion.
+  //
+  // A consequence of these these requirements is that the delegate futures cannot be stored in
+  // final fields.
+  //
+  // For simplicity the rest of this description will discuss Futures.withFallback since it is the
+  // simplest instance, though very similar descriptions apply to many other classes in this file.
+  //
+  // In the constructor of FutureFallback, the delegate future is assigned to a field 'running'.
+  // That field is non-final and non-volatile.  There are 2 places where the 'running' field is read
+  // and where we will have to consider visibility of the write operation in the constructor.
+  //
+  // 1. In the listener that performs the callback.  In this case it is fine since running is
+  //    assigned prior to calling addListener, and addListener happens-before any invocation of the
+  //    listener. Notably, this means that 'volatile' is unnecessary to make 'running' visible to
+  //    the listener.
+  //
+  // 2. In cancel() where we propagate cancellation to the input.  In this case it is _not_ fine.
+  //    There is currently nothing that enforces that the write to running in the constructor is
+  //    visible to cancel().  This is because there is no happens before edge between the write and
+  //    a (hypothetical) unsafe read by our caller. Note: adding 'volatile' does not fix this issue,
+  //    it would just add an edge such that if cancel() observed non-null, then it would also
+  //    definitely observe all earlier writes, but we still have no guarantee that cancel() would
+  //    see the inital write (just stronger guarantees if it does).
+  //
+  // See: http://cs.oswego.edu/pipermail/concurrency-interest/2015-January/013800.html
+  // For a (long) discussion about this specific issue and the general futility of life.
+  //
+  // For the time being we are OK with the problem discussed above since it requires a caller to
+  // introduce a very specific kind of data-race.  And given the other operations performed by these
+  // methods that involve volatile read/write operations, in practice there is no issue.  Also, the
+  // way in such a visibility issue would surface is most likely as a failure of cancel() to
+  // propagate to the input.  Cancellation propagation is fundamentally racy so this is fine.
+  //
+  // Future versions of the JMM may revise safe construction semantics in such a way that we can
+  // safely publish these objects and we won't need this whole discussion.
+  // TODO(user,lukes): consider adding volatile to all these fields since in current known JVMs
+  // that should resolve the issue.  This comes at the cost of adding more write barriers to the
+  // implementations.
+
   private Futures() {}
 
   /**
@@ -495,7 +541,10 @@ public final class Futures {
             throwable = e;
           }
           try {
-            setFuture(fallback.create(throwable));
+            ListenableFuture<? extends V> replacement = fallback.create(throwable);
+            checkNotNull(replacement, "FutureFallback.create returned null instead of a Future. "
+                + "Did you mean to return immediateFuture(null)?");
+            setFuture(replacement);
           } catch (Throwable e) {
             setException(e);
           }
@@ -513,6 +562,145 @@ public final class Futures {
         // super.cancel().
         if (current != null) {
           current.cancel(mayInterruptIfRunning);
+        }
+        return true;
+      }
+      return false;
+    }
+  }
+
+  /**
+   * Returns a future that delegates to another but will finish early (via a
+   * {@link TimeoutException} wrapped in an {@link ExecutionException}) if the
+   * specified duration expires.
+   *
+   * <p>The delegate future is interrupted and cancelled if it times out.
+   *
+   * @param delegate The future to delegate to.
+   * @param time when to timeout the future
+   * @param unit the time unit of the time parameter
+   * @param scheduledExecutor The executor service to enforce the timeout.
+   *
+   * @since 19.0
+   */
+  @GwtIncompatible("java.util.concurrent.ScheduledExecutorService")
+  public static <V> ListenableFuture<V> withTimeout(ListenableFuture<V> delegate,
+      long time, TimeUnit unit, ScheduledExecutorService scheduledExecutor) {
+    TimeoutFuture<V> result = new TimeoutFuture<V>(delegate);
+    TimeoutFuture.Fire<V> fire = new TimeoutFuture.Fire<V>(result);
+    result.timer = scheduledExecutor.schedule(fire, time, unit);
+    delegate.addListener(fire, directExecutor());
+    return result;
+  }
+
+  /**
+   * Future that delegates to another but will finish early (via a {@link
+   * TimeoutException} wrapped in an {@link ExecutionException}) if the
+   * specified duration expires.
+   * The delegate future is interrupted and cancelled if it times out.
+   */
+  private static final class TimeoutFuture<V> extends AbstractFuture.TrustedFuture<V> {
+    // Memory visibility of these fields.
+    // There are two cases to consider.
+    // 1. visibility of the writes to these fields to Fire.run
+    //    The initial write to delegateRef is made definitely visible via the semantics of
+    //    addListener/SES.schedule.  The later racy write in cancel() is not guaranteed to be
+    //    observed, however that is fine since the correctness is based on the atomic state in
+    //    our base class.
+    //    The initial write to timer is never definitely visible to Fire.run since it is assigned
+    //    after SES.schedule is called. Therefore Fire.run has to check for null.  However, it
+    //    should be visible if Fire.run is called by delegate.addListener since addListener is
+    //    called after the assignment to timer, and importantly this is the main situation in which
+    //    we need to be able to see the write.
+    // 2. visibility of the writes to cancel
+    //    Since these fields are non-final that means that TimeoutFuture is not being 'safely
+    //    published', thus a motivated caller may be able to expose the reference to another thread
+    //    that would then call cancel() and be unable to cancel the delegate.
+    //    There are a number of ways to solve this, none of which are very pretty, and it is
+    //    currently believed to be a purely theoretical problem (since the other actions should
+    //    supply sufficient write-barriers).
+
+    ListenableFuture<V> delegateRef;
+    Future<?> timer;
+
+    TimeoutFuture(ListenableFuture<V> delegate) {
+      this.delegateRef = Preconditions.checkNotNull(delegate);
+    }
+
+    /** A runnable that is called when the delegate or the timer completes. */
+    private static final class Fire<V> implements Runnable {
+      // Holding a strong reference to the enclosing class (as we would do if
+      // this weren't a static nested class) could cause retention of the
+      // delegate's return value (in AbstractFuture) for the duration of the
+      // timeout in the case of successful completion. We clear this on run.
+      TimeoutFuture<V> timeoutFutureRef;
+
+      Fire(TimeoutFuture<V> timeoutFuture) {
+        this.timeoutFutureRef = timeoutFuture;
+      }
+
+      @Override public void run() {
+        // If either of these reads return null then we must be after a successful cancel
+        // or another call to this method.
+        TimeoutFuture<V> timeoutFuture = timeoutFutureRef;
+        if (timeoutFuture == null) {
+          return;
+        }
+        ListenableFuture<V> delegate = timeoutFuture.delegateRef;
+        if (delegate == null) {
+          return;
+        }
+
+        // Unpin all the memory before attempting to complete.  Not only does this save us from
+        // wrapping everything in a finally block, it also ensures that if delegate.cancel() (in the
+        // else block), causes delegate to complete, then it won't reentrantly call back in and
+        // cause TimeoutFuture to finish with cancellation.
+        timeoutFutureRef = null;
+        Future<?> timer = timeoutFuture.timer;
+        timeoutFuture.delegateRef = null;
+        timeoutFuture.timer = null;
+        if (delegate.isDone()) {
+          timeoutFuture.setFuture(delegate);
+          // Try to cancel the timer as an optimization
+          // timer may be null if this call to run was by the timer task since there is no
+          // happens-before edge between the assignment to timer and an execution of the timer
+          // task.
+          if (timer != null) {
+            timer.cancel(false);
+          }
+        } else {
+          // Some users, for better or worse, rely on the delegate definitely being cancelled prior
+          // to the timeout future completing.  We wrap in a try...finally... for the off chance
+          // that cancelling the delegate causes an Error to be thrown from a listener on the
+          // delegate.
+          try {
+            delegate.cancel(true);
+          } finally {
+            // TODO(lukes): this stack trace is particularly useless (all it does is point at the
+            // scheduledexecutorservice thread), consider eliminating it altogether?
+            timeoutFuture.setException(new TimeoutException("Future timed out: " + delegate));
+          }
+        }
+      }
+    }
+
+    @Override public boolean cancel(boolean mayInterruptIfRunning) {
+      Future<?> localTimer = timer;
+      ListenableFuture<V> delegate = delegateRef;
+      if (super.cancel(mayInterruptIfRunning)) {
+        // Either can be null if super.cancel() races with an execution of Fire.run, but it doesn't
+        // matter because either 1. the delegate is already done (so there is no point in
+        // propagating cancellation and Fire.run will cancel the timer. or 2. the timeout occurred
+        // and Fire.run will cancel the delegate
+        // Technically this is also possible in the 'unsafe publishing' case described above.
+        if (delegate != null) {
+          // Unpin and prevent Fire from doing anything if delegate.cancel finishes the delegate.
+          delegateRef = null;
+          delegate.cancel(mayInterruptIfRunning);
+        }
+        if (localTimer != null) {
+          timer = null;
+          localTimer.cancel(false);
         }
         return true;
       }
@@ -868,6 +1056,8 @@ public final class Futures {
       extends AbstractFuture.TrustedFuture<O> implements Runnable {
 
     private AsyncFunction<? super I, ? extends O> function;
+    // In theory, this field might not be visible to a cancel() call in certain circumstances. For
+    // details, see the comments on the fields of TimeoutFuture.
     private ListenableFuture<? extends I> inputFuture;
 
     private ChainingListenableFuture(
@@ -911,9 +1101,9 @@ public final class Futures {
           return;
         }
 
-        ListenableFuture<? extends O> outputFuture =
-            Preconditions.checkNotNull(function.apply(sourceResult),
-                "AsyncFunction may not return null.");
+        ListenableFuture<? extends O> outputFuture = function.apply(sourceResult);
+        checkNotNull(outputFuture, "AsyncFunction.apply returned null instead of a Future. "
+            + "Did you mean to return immediateFuture(null)?");
         setFuture(outputFuture);
       } catch (UndeclaredThrowableException e) {
         // Set the cause of the exception as this future's exception
@@ -952,7 +1142,6 @@ public final class Futures {
    * @since 13.0
    */
   @SuppressWarnings({"rawtypes", "unchecked"})
-  @GwtIncompatible("TODO")
   public static <V> ListenableFuture<V> dereference(
       ListenableFuture<? extends ListenableFuture<? extends V>> nested) {
     return Futures.transform((ListenableFuture) nested, (AsyncFunction) DEREFERENCER);
@@ -961,7 +1150,6 @@ public final class Futures {
   /**
    * Helper {@code Function} for {@link #dereference}.
    */
-  @GwtIncompatible("TODO")
   private static final AsyncFunction<ListenableFuture<Object>, Object> DEREFERENCER =
       new AsyncFunction<ListenableFuture<Object>, Object>() {
         @Override public ListenableFuture<Object> apply(ListenableFuture<Object> input) {
@@ -1015,7 +1203,6 @@ public final class Futures {
     return listFuture(ImmutableList.copyOf(futures), true, directExecutor());
   }
 
-  @GwtIncompatible("TODO")
   private static final class CombinedFuture<V> extends TrustedListenableFutureTask<V> {
     ImmutableList<ListenableFuture<?>> futures;
 
@@ -1037,10 +1224,12 @@ public final class Futures {
     }
 
     @Override public boolean cancel(boolean mayInterruptIfRunning) {
-      ImmutableList<ListenableFuture<?>> futures = this.futures;
+      ImmutableList<ListenableFuture<?>> localFutures = this.futures;
       if (super.cancel(mayInterruptIfRunning)) {
-        for (ListenableFuture<?> future : futures) {
-          future.cancel(mayInterruptIfRunning);
+        if (localFutures != null) {
+          for (ListenableFuture<?> future : localFutures) {
+            future.cancel(mayInterruptIfRunning);
+          }
         }
         return true;
       }
@@ -1225,7 +1414,6 @@ public final class Futures {
    * @param callback The callback to invoke when {@code future} is completed.
    * @since 10.0
    */
-  @GwtIncompatible("TODO")
   public static <V> void addCallback(ListenableFuture<V> future,
       FutureCallback<? super V> callback) {
     addCallback(future, callback, directExecutor());
@@ -1671,7 +1859,7 @@ public final class Futures {
       // Cancel all the component futures.
       ImmutableCollection<? extends ListenableFuture<?>> futuresToCancel = futures;
       boolean cancelled = super.cancel(mayInterruptIfRunning);
-      if (cancelled) {
+      if (cancelled && futuresToCancel != null) {
         for (ListenableFuture<?> future : futuresToCancel) {
           future.cancel(mayInterruptIfRunning);
         }
@@ -1723,13 +1911,6 @@ public final class Futures {
      */
     private void setOneValue(int index, Future<? extends V> future) {
       List<Optional<V>> localValues = values;
-      // TODO(lukes): This check appears to be redundant since values is
-      // assigned null only after the future completes.  However, values
-      // is not volatile so it may be possible for us to observe the changes
-      // to these two values in a different order... which I think is why
-      // we need to check both.  Clear up this craziness either by making
-      // values volatile or proving that it doesn't need to be for some other
-      // reason.
       if (isDone() || localValues == null) {
         // Some other future failed or has been cancelled, causing this one to
         // also be cancelled or have an exception set. This should only happen

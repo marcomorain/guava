@@ -64,15 +64,17 @@
       <plugin>
         <artifactId>maven-surefire-plugin</artifactId>
         <configuration>
+          <redirectTestOutputToFile>true</redirectTestOutputToFile>
+          <!-- Set max heap for tests. -->
           <!-- Catch dependencies on the default locale by setting it to hi-IN. -->
-          <argLine>-Xmx1g -Xms1g -Duser.language=hi -Duser.country=IN</argLine>
+          <argLine>-Xmx1536M -Duser.language=hi -Duser.country=IN</argLine>
         </configuration>
       </plugin>
       <plugin>
         <artifactId>maven-jar-plugin</artifactId>
-        <version>2.3.1</version>
         <executions>
           <execution>
+            <id>create-test-jar</id>
             <goals><goal>test-jar</goal></goals>
           </execution>
         </executions>

@@ -16,6 +16,7 @@
 
 package com.google.common.util.concurrent;
 
+import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
 import static com.google.common.util.concurrent.Uninterruptibles.getUninterruptibly;
 
@@ -108,19 +109,22 @@ public abstract class AbstractFuture<V> implements ListenableFuture<V> {
   @Override
   public V get(long timeout, TimeUnit unit)
       throws InterruptedException, ExecutionException, TimeoutException {
+    checkNotNull(unit);
     return get();
   }
 
   @Override
   public void addListener(Runnable runnable, Executor executor) {
+    Listener listener = new Listener(runnable, executor);
     if (isDone()) {
-      executor.execute(runnable);
+      listener.execute();
     } else {
-      listeners.add(new Listener(runnable, executor));
+      listeners.add(listener);
     }
   }
 
   protected boolean setException(Throwable throwable) {
+    checkNotNull(throwable);
     if (!state.permitsPublicUserToTransitionTo(State.FAILURE)) {
       return false;
     }
@@ -151,6 +155,8 @@ public abstract class AbstractFuture<V> implements ListenableFuture<V> {
   }
 
   protected boolean setFuture(ListenableFuture<? extends V> future) {
+    checkNotNull(future);
+
     // If this future is already cancelled, cancel the delegate.
     if (isCancelled()) {
       future.cancel(mayInterruptIfRunning);
@@ -167,12 +173,20 @@ public abstract class AbstractFuture<V> implements ListenableFuture<V> {
     return true;
   }
 
+  protected final boolean wasInterrupted() {
+    return mayInterruptIfRunning;
+  }
+
   private void notifyAndClearListeners() {
+    // TODO(cpovirk): consider clearing this.delegate
     for (Listener listener : listeners) {
       listener.execute();
     }
     listeners = null;
+    done();
   }
+
+  void done() {}
 
   private enum State {
     PENDING {
@@ -246,8 +260,8 @@ public abstract class AbstractFuture<V> implements ListenableFuture<V> {
     final Executor executor;
     
     Listener(Runnable command, Executor executor) {
-      this.command = command;
-      this.executor = executor;
+      this.command = checkNotNull(command);
+      this.executor = checkNotNull(executor);
     }
     
     void execute() {
@@ -270,6 +284,17 @@ public abstract class AbstractFuture<V> implements ListenableFuture<V> {
     @Override
     public void run() {
       if (isCancelled()) {
+        return;
+      }
+
+      if (delegate instanceof TrustedFuture) {
+        AbstractFuture<? extends V> other = (AbstractFuture<? extends V>) delegate;
+        value = other.value;
+        throwable = other.throwable;
+        mayInterruptIfRunning = other.mayInterruptIfRunning;
+        state = other.state;
+
+        notifyAndClearListeners();
         return;
       }
 
