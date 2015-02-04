@@ -3,7 +3,7 @@ machine:
     MAVEN_OPTS: "-Xmx1024m -Xms1024m -Dmaven.artifact.threads=8"
 dependencies:
   override:
-    - mvn compile test-compile --projects guava,guava-testlib,guava-tests
+    - mvn compile test-compile
 test:
   override:
     - mvn test --projects guava,guava-testlib,guava-tests
