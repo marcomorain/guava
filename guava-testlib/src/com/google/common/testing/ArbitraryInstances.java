@@ -19,12 +19,12 @@ package com.google.common.testing;
 import static com.google.common.base.Preconditions.checkArgument;
 
 import com.google.common.annotations.Beta;
+import com.google.common.annotations.GwtIncompatible;
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Charsets;
 import com.google.common.base.Defaults;
 import com.google.common.base.Equivalence;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.base.Splitter;
@@ -48,8 +48,6 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.ImmutableTable;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.ListMultimap;
-import com.google.common.collect.MapConstraint;
-import com.google.common.collect.MapConstraints;
 import com.google.common.collect.MapDifference;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
@@ -76,7 +74,6 @@ import com.google.common.io.CharSource;
 import com.google.common.primitives.Primitives;
 import com.google.common.primitives.UnsignedInteger;
 import com.google.common.primitives.UnsignedLong;
-
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -121,6 +118,10 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.NavigableSet;
+import java.util.Optional;
+import java.util.OptionalDouble;
+import java.util.OptionalInt;
+import java.util.OptionalLong;
 import java.util.Queue;
 import java.util.Random;
 import java.util.Set;
@@ -144,13 +145,13 @@ import java.util.logging.Logger;
 import java.util.regex.MatchResult;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
+import java.util.stream.Stream;
 import javax.annotation.Nullable;
 
 /**
  * Supplies an arbitrary "default" instance for a wide range of types, often useful in testing
  * utilities.
- * 
+ *
  * <p>Covers arrays, enums and common types defined in {@code java.lang}, {@code java.lang.reflect},
  * {@code java.io}, {@code java.nio}, {@code java.math}, {@code java.util}, {@code
  * java.util.concurrent}, {@code java.util.regex}, {@code com.google.common.base}, {@code
@@ -158,7 +159,7 @@ import javax.annotation.Nullable;
  * exposes at least one public static final constant of the same type, one of the constants will be
  * used; or if the class exposes a public parameter-less constructor then it will be "new"d and
  * returned.
- * 
+ *
  * <p>All default instances returned by {@link #get} are generics-safe. Clients won't get type
  * errors for using {@code get(Comparator.class)} as a {@code Comparator<Foo>}, for example.
  * Immutable empty instances are returned for collection types; {@code ""} for string;
@@ -170,6 +171,7 @@ import javax.annotation.Nullable;
  * @since 12.0
  */
 @Beta
+@GwtIncompatible
 public final class ArbitraryInstances {
 
   private static final Ordering<Field> BY_FIELD_NAME = new Ordering<Field>() {
@@ -205,11 +207,15 @@ public final class ArbitraryInstances {
       .put(Charset.class, Charsets.UTF_8)
       .put(Currency.class, Currency.getInstance(Locale.US))
       .put(Locale.class, Locale.US)
+      .put(Optional.class, Optional.empty())
+      .put(OptionalInt.class, OptionalInt.empty())
+      .put(OptionalLong.class, OptionalLong.empty())
+      .put(OptionalDouble.class, OptionalDouble.empty())
       // common.base
-      .put(CharMatcher.class, CharMatcher.NONE)
+      .put(CharMatcher.class, CharMatcher.none())
       .put(Joiner.class, Joiner.on(','))
       .put(Splitter.class, Splitter.on(','))
-      .put(Optional.class, Optional.absent())
+      .put(com.google.common.base.Optional.class, com.google.common.base.Optional.absent())
       .put(Predicate.class, Predicates.alwaysTrue())
       .put(Equivalence.class, Equivalence.equals())
       .put(Ticker.class, Ticker.systemTicker())
@@ -235,7 +241,7 @@ public final class ArbitraryInstances {
       .put(CharSink.class, NullByteSink.INSTANCE.asCharSink(Charsets.UTF_8))
       // All collections are immutable empty. So safe for any type parameter.
       .put(Iterator.class, ImmutableSet.of().iterator())
-      .put(PeekingIterator.class, Iterators.peekingIterator(Iterators.emptyIterator()))
+      .put(PeekingIterator.class, Iterators.peekingIterator(ImmutableSet.of().iterator()))
       .put(ListIterator.class, ImmutableList.of().listIterator())
       .put(Iterable.class, ImmutableSet.of())
       .put(Collection.class, ImmutableList.of())
@@ -274,7 +280,6 @@ public final class ArbitraryInstances {
       .put(Comparator.class, AlwaysEqual.INSTANCE)
       .put(Ordering.class, AlwaysEqual.INSTANCE)
       .put(Range.class, Range.all())
-      .put(MapConstraint.class, MapConstraints.notNull())
       .put(MapDifference.class, Maps.difference(ImmutableMap.of(), ImmutableMap.of()))
       .put(SortedMapDifference.class,
           Maps.difference(ImmutableSortedMap.of(), ImmutableSortedMap.of()))
@@ -285,7 +290,7 @@ public final class ArbitraryInstances {
       .build();
 
   /**
-   * type -> implementation. Inherently mutable interfaces and abstract classes are mapped to their
+   * type → implementation. Inherently mutable interfaces and abstract classes are mapped to their
    * default implementations and are "new"d upon get().
    */
   private static final ConcurrentMap<Class<?>, Class<?>> implementations = Maps.newConcurrentMap();
@@ -341,6 +346,9 @@ public final class ArbitraryInstances {
     if (implementation != null) {
       return get(implementation);
     }
+    if (type == Stream.class) {
+      return type.cast(Stream.empty());
+    }
     if (type.isEnum()) {
       T[] enumConstants = type.getEnumConstants();
       return (enumConstants.length == 0)
@@ -366,9 +374,7 @@ public final class ArbitraryInstances {
     constructor.setAccessible(true); // accessibility check is too slow
     try {
       return constructor.newInstance();
-    } catch (InstantiationException impossible) {
-      throw new AssertionError(impossible);
-    } catch (IllegalAccessException impossible) {
+    } catch (InstantiationException | IllegalAccessException impossible) {
       throw new AssertionError(impossible);
     } catch (InvocationTargetException e) {
       logger.log(Level.WARNING, "Exception while invoking default constructor.", e.getCause());
@@ -420,7 +426,6 @@ public final class ArbitraryInstances {
     }
 
     public static final class DeterministicRandom extends Random {
-      @SuppressWarnings("unused") // invoked by reflection
       public DeterministicRandom() {
         super(0);
       }

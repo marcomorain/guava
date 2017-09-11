@@ -19,10 +19,10 @@ import static com.google.common.base.Preconditions.checkArgument;
 
 import com.google.common.annotations.GwtCompatible;
 import com.google.common.collect.ImmutableMap.IteratorBasedImmutableMap;
-
 import java.io.Serializable;
 import java.util.EnumMap;
-
+import java.util.Spliterator;
+import java.util.function.BiConsumer;
 import javax.annotation.Nullable;
 
 /**
@@ -38,24 +38,29 @@ final class ImmutableEnumMap<K extends Enum<K>, V> extends IteratorBasedImmutabl
     switch (map.size()) {
       case 0:
         return ImmutableMap.of();
-      case 1: {
+      case 1:
         Entry<K, V> entry = Iterables.getOnlyElement(map.entrySet());
         return ImmutableMap.of(entry.getKey(), entry.getValue());
-      }
       default:
-        return new ImmutableEnumMap<K, V>(map);
+        return new ImmutableEnumMap<>(map);
     }
   }
 
-  private transient final EnumMap<K, V> delegate;
+  private final transient EnumMap<K, V> delegate;
 
   private ImmutableEnumMap(EnumMap<K, V> delegate) {
     this.delegate = delegate;
     checkArgument(!delegate.isEmpty());
   }
 
-  @Override UnmodifiableIterator<K> keyIterator() {
+  @Override
+  UnmodifiableIterator<K> keyIterator() {
     return Iterators.unmodifiableIterator(delegate.keySet().iterator());
+  }
+
+  @Override
+  Spliterator<K> keySpliterator() {
+    return delegate.keySet().spliterator();
   }
 
   @Override
@@ -90,27 +95,39 @@ final class ImmutableEnumMap<K extends Enum<K>, V> extends IteratorBasedImmutabl
   }
 
   @Override
+  Spliterator<Entry<K, V>> entrySpliterator() {
+    return CollectSpliterators.map(delegate.entrySet().spliterator(), Maps::unmodifiableEntry);
+  }
+  
+  @Override public void forEach(BiConsumer<? super K, ? super V> action) {
+    delegate.forEach(action);
+  }
+
+  @Override
   boolean isPartialView() {
     return false;
   }
 
   // All callers of the constructor are restricted to <K extends Enum<K>>.
-  @Override Object writeReplace() {
-    return new EnumSerializedForm<K, V>(delegate);
+  @Override
+  Object writeReplace() {
+    return new EnumSerializedForm<>(delegate);
   }
 
   /*
-   * This class is used to serialize ImmutableEnumSet instances.
+   * This class is used to serialize ImmutableEnumMap instances.
    */
-  private static class EnumSerializedForm<K extends Enum<K>, V>
-      implements Serializable {
+  private static class EnumSerializedForm<K extends Enum<K>, V> implements Serializable {
     final EnumMap<K, V> delegate;
+
     EnumSerializedForm(EnumMap<K, V> delegate) {
       this.delegate = delegate;
     }
+
     Object readResolve() {
-      return new ImmutableEnumMap<K, V>(delegate);
+      return new ImmutableEnumMap<>(delegate);
     }
+
     private static final long serialVersionUID = 0;
   }
 }

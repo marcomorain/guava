@@ -18,8 +18,6 @@ package com.google.common.util.concurrent;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
-import junit.framework.*;
-
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.ObjectInputStream;
@@ -35,9 +33,20 @@ import java.util.Arrays;
 import java.util.Date;
 import java.util.NoSuchElementException;
 import java.util.PropertyPermission;
-import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionHandler;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
+import junit.framework.AssertionFailedError;
+import junit.framework.TestCase;
 
 /**
  * Base class for JSR166 Junit TCK tests.  Defines some constants,
@@ -295,11 +304,8 @@ abstract class JSR166TestCase extends TestCase {
         return new Date(System.currentTimeMillis() + delayMillis);
     }
 
-    /**
-     * The first exception encountered if any threadAssertXXX method fails.
-     */
-    private final AtomicReference<Throwable> threadFailure
-        = new AtomicReference<Throwable>(null);
+  /** The first exception encountered if any threadAssertXXX method fails. */
+  private final AtomicReference<Throwable> threadFailure = new AtomicReference<>(null);
 
     /**
      * Records an exception so that it can be rethrown later in the test
@@ -1190,7 +1196,7 @@ abstract class JSR166TestCase extends TestCase {
             assertNull(q.peek());
             assertNull(q.poll());
             assertNull(q.poll(0, MILLISECONDS));
-            assertEquals(q.toString(), "[]");
+      assertEquals("[]", q.toString());
             assertTrue(Arrays.equals(q.toArray(), new Object[0]));
             assertFalse(q.iterator().hasNext());
             try {

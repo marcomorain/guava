@@ -16,12 +16,14 @@
 
 package com.google.common.collect;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import com.google.common.annotations.GwtCompatible;
 import com.google.common.annotations.GwtIncompatible;
-
+import com.google.j2objc.annotations.Weak;
 import java.io.Serializable;
-import java.util.Map.Entry;
-
+import java.util.Spliterator;
+import java.util.function.Consumer;
 import javax.annotation.Nullable;
 
 /**
@@ -31,8 +33,8 @@ import javax.annotation.Nullable;
  * @author Kevin Bourrillion
  */
 @GwtCompatible(emulated = true)
-final class ImmutableMapKeySet<K, V> extends ImmutableSet<K> {
-  private final ImmutableMap<K, V> map;
+final class ImmutableMapKeySet<K, V> extends ImmutableSet.Indexed<K> {
+  @Weak private final ImmutableMap<K, V> map;
 
   ImmutableMapKeySet(ImmutableMap<K, V> map) {
     this.map = map;
@@ -49,26 +51,24 @@ final class ImmutableMapKeySet<K, V> extends ImmutableSet<K> {
   }
 
   @Override
+  public Spliterator<K> spliterator() {
+    return map.keySpliterator();
+  }
+
+  @Override
   public boolean contains(@Nullable Object object) {
     return map.containsKey(object);
   }
 
   @Override
-  ImmutableList<K> createAsList() {
-    final ImmutableList<Entry<K, V>> entryList = map.entrySet().asList();
-    return new ImmutableAsList<K>() {
+  K get(int index) {
+    return map.entrySet().asList().get(index).getKey();
+  }
 
-      @Override
-      public K get(int index) {
-        return entryList.get(index).getKey();
-      }
-
-      @Override
-      ImmutableCollection<K> delegateCollection() {
-        return ImmutableMapKeySet.this;
-      }
-
-    };
+  @Override
+  public void forEach(Consumer<? super K> action) {
+    checkNotNull(action);
+    map.forEach((k, v) -> action.accept(k));
   }
 
   @Override
@@ -76,20 +76,24 @@ final class ImmutableMapKeySet<K, V> extends ImmutableSet<K> {
     return true;
   }
 
-  @GwtIncompatible("serialization")
-  @Override Object writeReplace() {
+  @GwtIncompatible // serialization
+  @Override
+  Object writeReplace() {
     return new KeySetSerializedForm<K>(map);
   }
 
-  @GwtIncompatible("serialization")
+  @GwtIncompatible // serialization
   private static class KeySetSerializedForm<K> implements Serializable {
     final ImmutableMap<K, ?> map;
+
     KeySetSerializedForm(ImmutableMap<K, ?> map) {
       this.map = map;
     }
+
     Object readResolve() {
       return map.keySet();
     }
+
     private static final long serialVersionUID = 0;
   }
 }

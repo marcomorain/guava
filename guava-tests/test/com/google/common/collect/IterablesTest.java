@@ -28,16 +28,11 @@ import static java.util.Collections.emptyList;
 import com.google.common.annotations.GwtCompatible;
 import com.google.common.annotations.GwtIncompatible;
 import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.collect.testing.IteratorTester;
 import com.google.common.testing.ClassSanityTester;
 import com.google.common.testing.NullPointerTester;
-
-import junit.framework.AssertionFailedError;
-import junit.framework.TestCase;
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -50,7 +45,8 @@ import java.util.Queue;
 import java.util.RandomAccess;
 import java.util.Set;
 import java.util.SortedSet;
-import java.util.TreeSet;
+import junit.framework.AssertionFailedError;
+import junit.framework.TestCase;
 
 /**
  * Unit test for {@code Iterables}.
@@ -189,21 +185,21 @@ public class IterablesTest extends TestCase {
     }
   }
 
-  @GwtIncompatible("Iterables.toArray(Iterable, Class)")
+  @GwtIncompatible // Iterables.toArray(Iterable, Class)
   public void testToArrayEmpty() {
     Iterable<String> iterable = Collections.emptyList();
     String[] array = Iterables.toArray(iterable, String.class);
     assertTrue(Arrays.equals(new String[0], array));
   }
 
-  @GwtIncompatible("Iterables.toArray(Iterable, Class)")
+  @GwtIncompatible // Iterables.toArray(Iterable, Class)
   public void testToArraySingleton() {
     Iterable<String> iterable = Collections.singletonList("a");
     String[] array = Iterables.toArray(iterable, String.class);
     assertTrue(Arrays.equals(new String[] {"a"}, array));
   }
 
-  @GwtIncompatible("Iterables.toArray(Iterable, Class)")
+  @GwtIncompatible // Iterables.toArray(Iterable, Class)
   public void testToArray() {
     String[] sourceArray = new String[] {"a", "b", "c"};
     Iterable<String> iterable = asList(sourceArray);
@@ -262,14 +258,10 @@ public class IterablesTest extends TestCase {
 
   public void testTryFind() {
     Iterable<String> list = newArrayList("cool", "pants");
-    assertEquals(Optional.of("cool"),
-        Iterables.tryFind(list, Predicates.equalTo("cool")));
-    assertEquals(Optional.of("pants"),
-        Iterables.tryFind(list, Predicates.equalTo("pants")));
-    assertEquals(Optional.of("cool"),
-        Iterables.tryFind(list, Predicates.alwaysTrue()));
-    assertEquals(Optional.absent(),
-        Iterables.tryFind(list, Predicates.alwaysFalse()));
+    assertThat(Iterables.tryFind(list, Predicates.equalTo("cool"))).hasValue("cool");
+    assertThat(Iterables.tryFind(list, Predicates.equalTo("pants"))).hasValue("pants");
+    assertThat(Iterables.tryFind(list, Predicates.alwaysTrue())).hasValue("cool");
+    assertThat(Iterables.tryFind(list, Predicates.alwaysFalse())).isAbsent();
     assertCanIterateAgain(list);
   }
 
@@ -277,8 +269,8 @@ public class IterablesTest extends TestCase {
   private interface TypeB {}
   private static class HasBoth extends TypeA implements TypeB {}
 
-  @GwtIncompatible("Iterables.filter(Iterable, Class)")
-  public void testFilterByType() throws Exception {
+  @GwtIncompatible // Iterables.filter(Iterable, Class)
+  public void testFilterByType_iterator() throws Exception {
     HasBoth hasBoth = new HasBoth();
     Iterable<TypeA> alist = Lists
         .newArrayList(new TypeA(), new TypeA(), hasBoth, new TypeA());
@@ -286,7 +278,20 @@ public class IterablesTest extends TestCase {
     assertThat(blist).containsExactly(hasBoth).inOrder();
   }
 
-  public void testTransform() {
+  @GwtIncompatible // Iterables.filter(Iterable, Class)
+  public void testFilterByType_forEach() throws Exception {
+    HasBoth hasBoth1 = new HasBoth();
+    HasBoth hasBoth2 = new HasBoth();
+    Iterable<TypeA> alist = Lists
+        .newArrayList(hasBoth1, new TypeA(), hasBoth2, new TypeA());
+    Iterable<TypeB> blist = Iterables.filter(alist, TypeB.class);
+
+    Iterator<TypeB> expectedIterator = Arrays.<TypeB>asList(hasBoth1, hasBoth2).iterator();
+    blist.forEach(b -> assertThat(b).isEqualTo(expectedIterator.next()));
+    assertThat(expectedIterator.hasNext()).isFalse();
+  }
+
+  public void testTransform_iterator() {
     List<String> input = asList("1", "2", "3");
     Iterable<Integer> result = Iterables.transform(input,
         new Function<String, Integer>() {
@@ -301,6 +306,21 @@ public class IterablesTest extends TestCase {
     assertEquals(expected, actual);
     assertCanIterateAgain(result);
     assertEquals("[1, 2, 3]", result.toString());
+  }
+
+  public void testTransform_forEach() {
+    List<Integer> input = asList(1, 2, 3, 4);
+    Iterable<String> result = Iterables.transform(input,
+        new Function<Integer, String>() {
+          @Override
+          public String apply(Integer from) {
+            return Integer.toBinaryString(from);
+          }
+        });
+
+    Iterator<String> expectedIterator = asList("1", "10", "11", "100").iterator();
+    result.forEach(s -> assertEquals(expectedIterator.next(), s));
+    assertFalse(expectedIterator.hasNext());
   }
 
   public void testPoorlyBehavedTransform() {
@@ -319,8 +339,7 @@ public class IterablesTest extends TestCase {
     try {
       resultIterator.next();
       fail("Expected NFE");
-    } catch (NumberFormatException nfe) {
-      // Expected to fail.
+    } catch (NumberFormatException expected) {
     }
   }
 
@@ -456,7 +475,7 @@ public class IterablesTest extends TestCase {
     assertEquals(ImmutableList.of(3, 4), first);
   }
 
-  @GwtIncompatible("?")
+  @GwtIncompatible // ?
   // TODO: Figure out why this is failing in GWT.
   public void testPartitionRandomAccessInput() {
     Iterable<Integer> source = asList(1, 2, 3);
@@ -466,7 +485,7 @@ public class IterablesTest extends TestCase {
     assertTrue(iterator.next() instanceof RandomAccess);
   }
 
-  @GwtIncompatible("?")
+  @GwtIncompatible // ?
   // TODO: Figure out why this is failing in GWT.
   public void testPartitionNonRandomAccessInput() {
     Iterable<Integer> source = Lists.newLinkedList(asList(1, 2, 3));
@@ -519,7 +538,7 @@ public class IterablesTest extends TestCase {
     }
   }
 
-  @GwtIncompatible("NullPointerTester")
+  @GwtIncompatible // NullPointerTester
   public void testNullPointerExceptions() {
     NullPointerTester tester = new NullPointerTester();
     tester.testAllPublicStaticMethods(Iterables.class);
@@ -652,7 +671,7 @@ public class IterablesTest extends TestCase {
     } catch (UnsupportedOperationException expected) {}
   }
 
-  @GwtIncompatible("slow (~35s)")
+  @GwtIncompatible // slow (~35s)
   public void testSkip_iterator() {
     new IteratorTester<Integer>(5, MODIFIABLE, newArrayList(2, 3),
         IteratorTester.KnownOrder.KNOWN_ORDER) {
@@ -662,7 +681,7 @@ public class IterablesTest extends TestCase {
     }.test();
   }
 
-  @GwtIncompatible("slow (~35s)")
+  @GwtIncompatible // slow (~35s)
   public void testSkip_iteratorList() {
     new IteratorTester<Integer>(5, MODIFIABLE, newArrayList(2, 3),
         IteratorTester.KnownOrder.KNOWN_ORDER) {
@@ -886,21 +905,6 @@ public class IterablesTest extends TestCase {
     assertEquals("bar", Iterables.getLast(diesOnIteratorList, "qux"));
   }
 
-  /**
-   * {@link TreeSet} extension that forbids the use of
-   * {@link Collection#iterator} for tests that need to prove that it isn't
-   * called.
-   */
-  private static final class DiesOnIteratorTreeSet extends TreeSet<String> {
-    /**
-     * @throws UnsupportedOperationException all the time
-     */
-    @Override
-    public Iterator<String> iterator() {
-      throw new UnsupportedOperationException();
-    }
-  }
-
   public void testGetLast_emptySortedSet() {
     SortedSet<String> sortedSet = ImmutableSortedSet.of();
     try {
@@ -932,6 +936,14 @@ public class IterablesTest extends TestCase {
       fail();
     } catch (UnsupportedOperationException expected) {}
     assertEquals("[a, b, c]", iterable.toString());
+  }
+
+  public void testUnmodifiableIterable_forEach() {
+    List<String> list = newArrayList("a", "b", "c", "d");
+    Iterable<String> iterable = Iterables.unmodifiableIterable(list);
+    Iterator<String> expectedIterator = list.iterator();
+    iterable.forEach(s -> assertEquals(expectedIterator.next(), s));
+    assertFalse(expectedIterator.hasNext());
   }
 
   @SuppressWarnings("deprecation") // test of deprecated method
@@ -1041,6 +1053,30 @@ public class IterablesTest extends TestCase {
     assertEquals(newArrayList("a", "c", "e"), list);
   }
 
+  public void testRemoveIf_randomAccess_notPermittingDuplicates() {
+    // https://github.com/google/guava/issues/1596
+    List<String> uniqueList = newArrayList("a", "b", "c", "d", "e");
+    assertThat(uniqueList).containsNoDuplicates();
+
+    assertTrue(uniqueList instanceof RandomAccess);
+    assertTrue(Iterables.removeIf(uniqueList,
+        new Predicate<String>() {
+          @Override
+          public boolean apply(String s) {
+            return s.equals("b") || s.equals("d") || s.equals("f");
+          }
+        }));
+    assertEquals(newArrayList("a", "c", "e"), uniqueList);
+    assertFalse(Iterables.removeIf(uniqueList,
+        new Predicate<String>() {
+          @Override
+          public boolean apply(String s) {
+            return s.equals("x") || s.equals("y") || s.equals("z");
+          }
+        }));
+    assertEquals(newArrayList("a", "c", "e"), uniqueList);
+  }
+
   public void testRemoveIf_transformedList() {
     List<String> list = newArrayList("1", "2", "3", "4", "5");
     List<Integer> transformed = Lists.transform(list,
@@ -1085,6 +1121,37 @@ public class IterablesTest extends TestCase {
             return s.equals("x") || s.equals("y") || s.equals("z");
           }
         }));
+    assertEquals(newArrayList("a", "c", "e"), list);
+  }
+
+  public void testRemoveIf_iterable() {
+    final List<String> list = Lists.newLinkedList(asList("a", "b", "c", "d", "e"));
+    Iterable<String> iterable =
+        new Iterable<String>() {
+          @Override
+          public Iterator<String> iterator() {
+            return list.iterator();
+          }
+        };
+    assertTrue(
+        Iterables.removeIf(
+            iterable,
+            new Predicate<String>() {
+              @Override
+              public boolean apply(String s) {
+                return s.equals("b") || s.equals("d") || s.equals("f");
+              }
+            }));
+    assertEquals(newArrayList("a", "c", "e"), list);
+    assertFalse(
+        Iterables.removeIf(
+            iterable,
+            new Predicate<String>() {
+              @Override
+              public boolean apply(String s) {
+                return s.equals("x") || s.equals("y") || s.equals("z");
+              }
+            }));
     assertEquals(newArrayList("a", "c", "e"), list);
   }
 
@@ -1140,7 +1207,7 @@ public class IterablesTest extends TestCase {
     assertFalse(consumingIterator.hasNext());
   }
 
-  @GwtIncompatible("?")
+  @GwtIncompatible // ?
   // TODO: Figure out why this is failing in GWT.
   public void testConsumingIterable_duelingIterators() {
     // Test data
@@ -1189,7 +1256,7 @@ public class IterablesTest extends TestCase {
 
   public void testConsumingIterable_noIteratorCall() {
     Queue<Integer> queue =
-        new UnIterableQueue<Integer>(Lists.newLinkedList(asList(5, 14)));
+        new UnIterableQueue<>(Lists.newLinkedList(asList(5, 14)));
 
     Iterator<Integer> consumingIterator =
         Iterables.consumingIterable(queue).iterator();
@@ -1201,7 +1268,7 @@ public class IterablesTest extends TestCase {
   }
 
   private static class UnIterableQueue<T> extends ForwardingQueue<T> {
-    private Queue<T> queue;
+    private final Queue<T> queue;
 
     UnIterableQueue(Queue<T> queue) {
       this.queue = queue;
@@ -1217,7 +1284,7 @@ public class IterablesTest extends TestCase {
   }
 
   public void testIndexOf_empty() {
-    List<String> list = new ArrayList<String>();
+    List<String> list = new ArrayList<>();
     assertEquals(-1, Iterables.indexOf(list, Predicates.equalTo("")));
   }
 
@@ -1338,7 +1405,7 @@ public class IterablesTest extends TestCase {
     verifyMergeSorted(iterables, allIntegers);
   }
 
-  @GwtIncompatible("reflection")
+  @GwtIncompatible // reflection
   public void testIterables_nullCheck() throws Exception {
     new ClassSanityTester()
         .forAllPublicStaticMethods(Iterables.class)

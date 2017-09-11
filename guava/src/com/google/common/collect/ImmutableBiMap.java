@@ -16,33 +16,48 @@
 
 package com.google.common.collect;
 
+import static com.google.common.collect.CollectPreconditions.checkNonnegative;
+
 import com.google.common.annotations.Beta;
 import com.google.common.annotations.GwtCompatible;
-import com.google.common.collect.ImmutableMap.Builder;
-
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.Map;
-import java.util.Map.Entry;
+import java.util.function.Function;
+import java.util.stream.Collector;
+import java.util.stream.Collectors;
 
 /**
- * An immutable {@link BiMap} with reliable user-specified iteration order. Does
- * not permit null keys or values. An {@code ImmutableBiMap} and its inverse
- * have the same iteration ordering.
- *
- * <p>An instance of {@code ImmutableBiMap} contains its own data and will
- * <i>never</i> change. {@code ImmutableBiMap} is convenient for
- * {@code public static final} maps ("constant maps") and also lets you easily
- * make a "defensive copy" of a bimap provided to your class by a caller.
- *
- * <p><b>Note:</b> Although this class is not final, it cannot be subclassed as
- * it has no public or protected constructors. Thus, instances of this class are
- * guaranteed to be immutable.
+ * A {@link BiMap} whose contents will never change, with many other important properties detailed
+ * at {@link ImmutableCollection}.
  *
  * @author Jared Levy
- * @since 2.0 (imported from Google Collections Library)
+ * @since 2.0
  */
 @GwtCompatible(serializable = true, emulated = true)
-public abstract class ImmutableBiMap<K, V> extends ImmutableMap<K, V>
+public abstract class ImmutableBiMap<K, V> extends ImmutableBiMapFauxverideShim<K, V>
     implements BiMap<K, V> {
+
+  /**
+   * Returns a {@link Collector} that accumulates elements into an {@code ImmutableBiMap} whose
+   * keys and values are the result of applying the provided mapping functions to the input
+   * elements. Entries appear in the result {@code ImmutableBiMap} in encounter order.
+   *
+   * <p>If the mapped keys or values contain duplicates
+   * (according to {@link Object#equals(Object)}, an {@code IllegalArgumentException} is thrown
+   * when the collection operation is performed. (This differs from the {@code Collector} returned
+   * by {@link Collectors#toMap(Function, Function)}, which throws an
+   * {@code IllegalStateException}.)
+   *
+   * @since 21.0
+   */
+  @Beta
+  public static <T, K, V> Collector<T, ?, ImmutableBiMap<K, V>> toImmutableBiMap(
+      Function<? super T, ? extends K> keyFunction,
+      Function<? super T, ? extends V> valueFunction) {
+    return CollectCollectors.toImmutableBiMap(keyFunction, valueFunction);
+  }
 
   /**
    * Returns the empty bimap.
@@ -50,14 +65,14 @@ public abstract class ImmutableBiMap<K, V> extends ImmutableMap<K, V>
   // Casting to any type is safe because the set will never hold any elements.
   @SuppressWarnings("unchecked")
   public static <K, V> ImmutableBiMap<K, V> of() {
-    return (ImmutableBiMap<K, V>) EmptyImmutableBiMap.INSTANCE;
+    return (ImmutableBiMap<K, V>) RegularImmutableBiMap.EMPTY;
   }
 
   /**
    * Returns an immutable bimap containing a single entry.
    */
   public static <K, V> ImmutableBiMap<K, V> of(K k1, V v1) {
-    return new SingletonImmutableBiMap<K, V>(k1, v1);
+    return new SingletonImmutableBiMap<>(k1, v1);
   }
 
   /**
@@ -66,7 +81,7 @@ public abstract class ImmutableBiMap<K, V> extends ImmutableMap<K, V>
    * @throws IllegalArgumentException if duplicate keys or values are added
    */
   public static <K, V> ImmutableBiMap<K, V> of(K k1, V v1, K k2, V v2) {
-    return new RegularImmutableBiMap<K, V>(entryOf(k1, v1), entryOf(k2, v2));
+    return RegularImmutableBiMap.fromEntries(entryOf(k1, v1), entryOf(k2, v2));
   }
 
   /**
@@ -74,9 +89,8 @@ public abstract class ImmutableBiMap<K, V> extends ImmutableMap<K, V>
    *
    * @throws IllegalArgumentException if duplicate keys or values are added
    */
-  public static <K, V> ImmutableBiMap<K, V> of(
-      K k1, V v1, K k2, V v2, K k3, V v3) {
-    return new RegularImmutableBiMap<K, V>(entryOf(k1, v1), entryOf(k2, v2), entryOf(k3, v3));
+  public static <K, V> ImmutableBiMap<K, V> of(K k1, V v1, K k2, V v2, K k3, V v3) {
+    return RegularImmutableBiMap.fromEntries(entryOf(k1, v1), entryOf(k2, v2), entryOf(k3, v3));
   }
 
   /**
@@ -84,10 +98,9 @@ public abstract class ImmutableBiMap<K, V> extends ImmutableMap<K, V>
    *
    * @throws IllegalArgumentException if duplicate keys or values are added
    */
-  public static <K, V> ImmutableBiMap<K, V> of(
-      K k1, V v1, K k2, V v2, K k3, V v3, K k4, V v4) {
-    return new RegularImmutableBiMap<K, V>(entryOf(k1, v1), entryOf(k2, v2), entryOf(k3, v3),
-        entryOf(k4, v4));
+  public static <K, V> ImmutableBiMap<K, V> of(K k1, V v1, K k2, V v2, K k3, V v3, K k4, V v4) {
+    return RegularImmutableBiMap.fromEntries(
+        entryOf(k1, v1), entryOf(k2, v2), entryOf(k3, v3), entryOf(k4, v4));
   }
 
   /**
@@ -97,8 +110,8 @@ public abstract class ImmutableBiMap<K, V> extends ImmutableMap<K, V>
    */
   public static <K, V> ImmutableBiMap<K, V> of(
       K k1, V v1, K k2, V v2, K k3, V v3, K k4, V v4, K k5, V v5) {
-    return new RegularImmutableBiMap<K, V>(entryOf(k1, v1), entryOf(k2, v2), entryOf(k3, v3),
-        entryOf(k4, v4), entryOf(k5, v5));
+    return RegularImmutableBiMap.fromEntries(
+        entryOf(k1, v1), entryOf(k2, v2), entryOf(k3, v3), entryOf(k4, v4), entryOf(k5, v5));
   }
 
   // looking for of() with > 5 entries? Use the builder instead.
@@ -108,7 +121,25 @@ public abstract class ImmutableBiMap<K, V> extends ImmutableMap<K, V>
    * created by the {@link Builder} constructor.
    */
   public static <K, V> Builder<K, V> builder() {
-    return new Builder<K, V>();
+    return new Builder<>();
+  }
+
+  /**
+   * Returns a new builder, expecting the specified number of entries to be added.
+   *
+   * <p>If {@code expectedSize} is exactly the number of entries added to the builder before {@link
+   * Builder#build} is called, the builder is likely to perform better than an unsized {@link
+   * #builder()} would have.
+   *
+   * <p>It is not specified if any performance benefits apply if {@code expectedSize} is close to,
+   * but not exactly, the number of entries added to the builder.
+   * 
+   * @since 24.0
+   */
+  @Beta
+  public static <K, V> Builder<K, V> builderWithExpectedSize(int expectedSize) {
+    checkNonnegative(expectedSize, "expectedSize");
+    return new Builder<>(expectedSize);
   }
 
   /**
@@ -125,11 +156,19 @@ public abstract class ImmutableBiMap<K, V> extends ImmutableMap<K, V>
    * <p>For <i>small</i> immutable bimaps, the {@code ImmutableBiMap.of()} methods
    * are even more convenient.
    *
+   * <p>By default, a {@code Builder} will generate bimaps that iterate over entries in the order
+   * they were inserted into the builder.  For example, in the above example,
+   * {@code WORD_TO_INT.entrySet()} is guaranteed to iterate over the entries in the order
+   * {@code "one"=1, "two"=2, "three"=3}, and {@code keySet()} and {@code values()} respect the same
+   * order. If you want a different order, consider using
+   * {@link #orderEntriesByValue(Comparator)}, which changes this builder to sort
+   * entries by value.
+   *
    * <p>Builder instances can be reused - it is safe to call {@link #build}
    * multiple times to build multiple bimaps in series. Each bimap is a superset
    * of the bimaps created before it.
    *
-   * @since 2.0 (imported from Google Collections Library)
+   * @since 2.0
    */
   public static final class Builder<K, V> extends ImmutableMap.Builder<K, V> {
 
@@ -139,11 +178,17 @@ public abstract class ImmutableBiMap<K, V> extends ImmutableMap<K, V>
      */
     public Builder() {}
 
+    Builder(int size) {
+      super(size);
+    }
+
     /**
      * Associates {@code key} with {@code value} in the built bimap. Duplicate
      * keys or values are not allowed, and will cause {@link #build} to fail.
      */
-    @Override public Builder<K, V> put(K key, V value) {
+    @CanIgnoreReturnValue
+    @Override
+    public Builder<K, V> put(K key, V value) {
       super.put(key, value);
       return this;
     }
@@ -154,7 +199,9 @@ public abstract class ImmutableBiMap<K, V> extends ImmutableMap<K, V>
      *
      * @since 19.0
      */
-    @Override public Builder<K, V> put(Entry<? extends K, ? extends V> entry) {
+    @CanIgnoreReturnValue
+    @Override
+    public Builder<K, V> put(Entry<? extends K, ? extends V> entry) {
       super.put(entry);
       return this;
     }
@@ -166,7 +213,9 @@ public abstract class ImmutableBiMap<K, V> extends ImmutableMap<K, V>
      *
      * @throws NullPointerException if any key or value in {@code map} is null
      */
-    @Override public Builder<K, V> putAll(Map<? extends K, ? extends V> map) {
+    @CanIgnoreReturnValue
+    @Override
+    public Builder<K, V> putAll(Map<? extends K, ? extends V> map) {
       super.putAll(map);
       return this;
     }
@@ -178,6 +227,7 @@ public abstract class ImmutableBiMap<K, V> extends ImmutableMap<K, V>
      * @throws NullPointerException if any key, value, or entry is null
      * @since 19.0
      */
+    @CanIgnoreReturnValue
     @Beta
     @Override
     public Builder<K, V> putAll(Iterable<? extends Entry<? extends K, ? extends V>> entries) {
@@ -186,18 +236,65 @@ public abstract class ImmutableBiMap<K, V> extends ImmutableMap<K, V>
     }
 
     /**
-     * Returns a newly-created immutable bimap.
+     * Configures this {@code Builder} to order entries by value according to the specified
+     * comparator.
+     *
+     * <p>The sort order is stable, that is, if two entries have values that compare
+     * as equivalent, the entry that was inserted first will be first in the built map's
+     * iteration order.
+     *
+     * @throws IllegalStateException if this method was already called
+     * @since 19.0
+     */
+    @CanIgnoreReturnValue
+    @Beta
+    @Override
+    public Builder<K, V> orderEntriesByValue(Comparator<? super V> valueComparator) {
+      super.orderEntriesByValue(valueComparator);
+      return this;
+    }
+
+    @Override
+    @CanIgnoreReturnValue
+    Builder<K, V> combine(ImmutableMap.Builder<K, V> builder) {
+      super.combine(builder);
+      return this;
+    }
+
+    /**
+     * Returns a newly-created immutable bimap.  The iteration order of the returned bimap is
+     * the order in which entries were inserted into the builder, unless
+     * {@link #orderEntriesByValue} was called, in which case entries are sorted by value.
      *
      * @throws IllegalArgumentException if duplicate keys or values were added
      */
-    @Override public ImmutableBiMap<K, V> build() {
+    @Override
+    public ImmutableBiMap<K, V> build() {
       switch (size) {
         case 0:
           return of();
         case 1:
           return of(entries[0].getKey(), entries[0].getValue());
         default:
-          return new RegularImmutableBiMap<K, V>(size, entries);
+          /*
+           * If entries is full, then this implementation may end up using the entries array
+           * directly and writing over the entry objects with non-terminal entries, but this is
+           * safe; if this Builder is used further, it will grow the entries array (so it can't
+           * affect the original array), and future build() calls will always copy any entry
+           * objects that cannot be safely reused.
+           */
+          if (valueComparator != null) {
+            if (entriesUsed) {
+              entries = Arrays.copyOf(entries, size);
+            }
+            Arrays.sort(
+                entries,
+                0,
+                size,
+                Ordering.from(valueComparator).onResultOf(Maps.<V>valueFunction()));
+          }
+          entriesUsed = size == entries.length;
+          return RegularImmutableBiMap.fromEntryArray(size, entries);
       }
     }
   }
@@ -208,19 +305,22 @@ public abstract class ImmutableBiMap<K, V> extends ImmutableMap<K, V>
    * it is a {@code SortedMap} whose comparator is not <i>consistent with
    * equals</i>), the results of this method are undefined.
    *
+   * <p>The returned {@code BiMap} iterates over entries in the same order as the
+   * {@code entrySet} of the original map.
+   *
    * <p>Despite the method name, this method attempts to avoid actually copying
    * the data when it is safe to do so. The exact circumstances under which a
    * copy will or will not be performed are undocumented and subject to change.
    *
-   * @throws IllegalArgumentException if two keys have the same value
+   * @throws IllegalArgumentException if two keys have the same value or two values have the same
+   *     key
    * @throws NullPointerException if any key or value in {@code map} is null
    */
-  public static <K, V> ImmutableBiMap<K, V> copyOf(
-      Map<? extends K, ? extends V> map) {
+  public static <K, V> ImmutableBiMap<K, V> copyOf(Map<? extends K, ? extends V> map) {
     if (map instanceof ImmutableBiMap) {
       @SuppressWarnings("unchecked") // safe since map is not writable
       ImmutableBiMap<K, V> bimap = (ImmutableBiMap<K, V>) map;
-      // TODO(user): if we need to make a copy of a BiMap because the
+      // TODO(lowasser): if we need to make a copy of a BiMap because the
       // forward map is a view, don't make a copy of the non-view delegate map
       if (!bimap.isPartialView()) {
         return bimap;
@@ -230,7 +330,8 @@ public abstract class ImmutableBiMap<K, V> extends ImmutableMap<K, V>
   }
 
   /**
-   * Returns an immutable bimap containing the given entries.
+   * Returns an immutable bimap containing the given entries.  The returned bimap iterates over
+   * entries in the same order as the original iterable.
    *
    * @throws IllegalArgumentException if two keys have the same value or two
    *         values have the same key
@@ -240,16 +341,20 @@ public abstract class ImmutableBiMap<K, V> extends ImmutableMap<K, V>
   @Beta
   public static <K, V> ImmutableBiMap<K, V> copyOf(
       Iterable<? extends Entry<? extends K, ? extends V>> entries) {
-    Entry<?, ?>[] entryArray = Iterables.toArray(entries, EMPTY_ENTRY_ARRAY);
+    @SuppressWarnings("unchecked") // we'll only be using getKey and getValue, which are covariant
+    Entry<K, V>[] entryArray = (Entry<K, V>[]) Iterables.toArray(entries, EMPTY_ENTRY_ARRAY);
     switch (entryArray.length) {
       case 0:
         return of();
       case 1:
-        @SuppressWarnings("unchecked") // safe covariant cast in this context
-        Entry<K, V> entry = (Entry<K, V>) entryArray[0];
+        Entry<K, V> entry = entryArray[0];
         return of(entry.getKey(), entry.getValue());
       default:
-        return new RegularImmutableBiMap<K, V>(entryArray);
+        /*
+         * The current implementation will end up using entryArray directly, though it will write
+         * over the (arbitrary, potentially mutable) Entry objects actually stored in entryArray.
+         */
+        return RegularImmutableBiMap.fromEntries(entryArray);
     }
   }
 
@@ -265,11 +370,17 @@ public abstract class ImmutableBiMap<K, V> extends ImmutableMap<K, V>
   public abstract ImmutableBiMap<V, K> inverse();
 
   /**
-   * Returns an immutable set of the values in this map. The values are in the
-   * same order as the parameters used to build this map.
+   * Returns an immutable set of the values in this map, in the same order they appear in {@link
+   * #entrySet}.
    */
-  @Override public ImmutableSet<V> values() {
+  @Override
+  public ImmutableSet<V> values() {
     return inverse().keySet();
+  }
+
+  @Override
+  final ImmutableSet<V> createValues() {
+    throw new AssertionError("should never be called");
   }
 
   /**
@@ -278,6 +389,7 @@ public abstract class ImmutableBiMap<K, V> extends ImmutableMap<K, V>
    * @throws UnsupportedOperationException always
    * @deprecated Unsupported operation.
    */
+  @CanIgnoreReturnValue
   @Deprecated
   @Override
   public V forcePut(K key, V value) {
@@ -297,14 +409,18 @@ public abstract class ImmutableBiMap<K, V> extends ImmutableMap<K, V>
     SerializedForm(ImmutableBiMap<?, ?> bimap) {
       super(bimap);
     }
-    @Override Object readResolve() {
-      Builder<Object, Object> builder = new Builder<Object, Object>();
+
+    @Override
+    Object readResolve() {
+      Builder<Object, Object> builder = new Builder<>();
       return createMap(builder);
     }
+
     private static final long serialVersionUID = 0;
   }
 
-  @Override Object writeReplace() {
+  @Override
+  Object writeReplace() {
     return new SerializedForm(this);
   }
 }

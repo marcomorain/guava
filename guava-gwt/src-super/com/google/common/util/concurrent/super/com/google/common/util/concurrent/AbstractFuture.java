@@ -17,8 +17,10 @@
 package com.google.common.util.concurrent;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
+import static com.google.common.base.Strings.isNullOrEmpty;
+import static com.google.common.util.concurrent.Futures.getDone;
 import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
-import static com.google.common.util.concurrent.Uninterruptibles.getUninterruptibly;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -30,32 +32,19 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import javax.annotation.Nullable;
 
-/**
- * Emulation for AbstractFuture in GWT.
- */
-public abstract class AbstractFuture<V> implements ListenableFuture<V> {
+/** Emulation for AbstractFuture in GWT. */
+public abstract class AbstractFuture<V> extends FluentFuture<V> {
 
   abstract static class TrustedFuture<V> extends AbstractFuture<V> {
-    @Override public final V get() throws InterruptedException, ExecutionException {
-      return super.get();
-    }
-
-    @Override public final V get(long timeout, TimeUnit unit)
-        throws InterruptedException, ExecutionException, TimeoutException {
-      return super.get(timeout, unit);
-    }
-
-    @Override public final boolean isDone() {
-      return super.isDone();
-    }
-
-    @Override public final boolean isCancelled() {
-      return super.isCancelled();
-    }
-
-    @Override public final void addListener(Runnable listener, Executor executor) {
-      super.addListener(listener, executor);
+    /*
+     * We don't need to override most of methods that we override in the prod version (and in fact
+     * we can't) because they are already final in AbstractFuture itself under GWT.
+     */
+    @Override
+    public final boolean cancel(boolean mayInterruptIfRunning) {
+      return super.cancel(mayInterruptIfRunning);
     }
   }
 
@@ -72,49 +61,56 @@ public abstract class AbstractFuture<V> implements ListenableFuture<V> {
     state = State.PENDING;
     listeners = new ArrayList<Listener>();
   }
-  
+
   @Override
   public boolean cancel(boolean mayInterruptIfRunning) {
     if (!state.permitsPublicUserToTransitionTo(State.CANCELLED)) {
       return false;
     }
-    
+
     this.mayInterruptIfRunning = mayInterruptIfRunning;
     state = State.CANCELLED;
     notifyAndClearListeners();
 
     if (delegate != null) {
+      // TODO(lukes): consider adding the StackOverflowError protection from the server version
       delegate.cancel(mayInterruptIfRunning);
     }
 
     return true;
   }
 
+  protected void interruptTask() {}
+
   @Override
-  public boolean isCancelled() {
+  public final boolean isCancelled() {
     return state.isCancelled();
   }
 
   @Override
-  public boolean isDone() {
+  public final boolean isDone() {
     return state.isDone();
   }
 
+  /*
+   * We let people override {@code get()} in the server version (though perhaps we shouldn't). Here,
+   * we don't want that, and anyway, users can't, thanks to the package-private parameter.
+   */
   @Override
-  public V get() throws InterruptedException, ExecutionException {
+  public final V get() throws InterruptedException, ExecutionException {
     state.maybeThrowOnGet(throwable);
     return value;
   }
 
   @Override
-  public V get(long timeout, TimeUnit unit)
+  public final V get(long timeout, TimeUnit unit)
       throws InterruptedException, ExecutionException, TimeoutException {
     checkNotNull(unit);
     return get();
   }
 
   @Override
-  public void addListener(Runnable runnable, Executor executor) {
+  public final void addListener(Runnable runnable, Executor executor) {
     Listener listener = new Listener(runnable, executor);
     if (isDone()) {
       listener.execute();
@@ -128,7 +124,7 @@ public abstract class AbstractFuture<V> implements ListenableFuture<V> {
     if (!state.permitsPublicUserToTransitionTo(State.FAILURE)) {
       return false;
     }
-    
+
     forceSetException(throwable);
     return true;
   }
@@ -158,6 +154,8 @@ public abstract class AbstractFuture<V> implements ListenableFuture<V> {
     checkNotNull(future);
 
     // If this future is already cancelled, cancel the delegate.
+    // TODO(cpovirk): Should we do this at the end of the method, as in the server version?
+    // TODO(cpovirk): Use maybePropagateCancellation?
     if (isCancelled()) {
       future.cancel(mayInterruptIfRunning);
     }
@@ -178,15 +176,83 @@ public abstract class AbstractFuture<V> implements ListenableFuture<V> {
   }
 
   private void notifyAndClearListeners() {
+    afterDone();
+    // TODO(lukes): consider adding the StackOverflowError protection from the server version
     // TODO(cpovirk): consider clearing this.delegate
     for (Listener listener : listeners) {
       listener.execute();
     }
     listeners = null;
-    done();
   }
 
-  void done() {}
+  protected void afterDone() {}
+
+  final Throwable trustedGetException() {
+    checkState(state == State.FAILURE);
+    return throwable;
+  }
+
+  final void maybePropagateCancellation(@Nullable Future<?> related) {
+    if (related != null & isCancelled()) {
+      related.cancel(wasInterrupted());
+    }
+  }
+
+  @Override
+  public String toString() {
+    StringBuilder builder = new StringBuilder().append(super.toString()).append("[status=");
+    if (isCancelled()) {
+      builder.append("CANCELLED");
+    } else if (isDone()) {
+      addDoneString(builder);
+    } else {
+      String pendingDescription;
+      try {
+        pendingDescription = pendingToString();
+      } catch (RuntimeException e) {
+        // Don't call getMessage or toString() on the exception, in case the exception thrown by the
+        // subclass is implemented with bugs similar to the subclass.
+        pendingDescription = "Exception thrown from implementation: " + e.getClass();
+      }
+      // The future may complete during or before the call to getPendingToString, so we use null
+      // as a signal that we should try checking if the future is done again.
+      if (!isNullOrEmpty(pendingDescription)) {
+        builder.append("PENDING, info=[").append(pendingDescription).append("]");
+      } else if (isDone()) {
+        addDoneString(builder);
+      } else {
+        builder.append("PENDING");
+      }
+    }
+    return builder.append("]").toString();
+  }
+
+  /**
+   * Provide a human-readable explanation of why this future has not yet completed.
+   *
+   * @return null if an explanation cannot be provided because the future is done.
+   */
+  @Nullable
+  String pendingToString() {
+    Object localValue = value;
+    if (localValue instanceof AbstractFuture.SetFuture) {
+      return "setFuture=[" + ((AbstractFuture.SetFuture) localValue).delegate + "]";
+    }
+    return null;
+  }
+
+  private void addDoneString(StringBuilder builder) {
+    try {
+      V value = getDone(this);
+      builder.append("SUCCESS, result=[").append(value).append("]");
+    } catch (ExecutionException e) {
+      builder.append("FAILURE, cause=[").append(e.getCause()).append("]");
+    } catch (CancellationException e) {
+      builder.append("CANCELLED");
+    } catch (RuntimeException e) {
+      builder.append("UNKNOWN, cause=[").append(e.getClass()).append(" thrown from get()]");
+    }
+  }
 
   private enum State {
     PENDING {
@@ -194,12 +260,12 @@ public abstract class AbstractFuture<V> implements ListenableFuture<V> {
       boolean isDone() {
         return false;
       }
-      
+
       @Override
       void maybeThrowOnGet(Throwable cause) throws ExecutionException {
         throw new IllegalStateException("Cannot get() on a pending future.");
       }
-      
+
       @Override
       boolean permitsPublicUserToTransitionTo(State state) {
         return !state.equals(PENDING);
@@ -239,17 +305,17 @@ public abstract class AbstractFuture<V> implements ListenableFuture<V> {
         throw new CancellationException();
       }
     };
-    
+
     boolean isDone() {
       return true;
     }
-    
+
     boolean isCancelled() {
       return false;
     }
 
     void maybeThrowOnGet(Throwable cause) throws ExecutionException {}
-    
+
     boolean permitsPublicUserToTransitionTo(State state) {
       return false;
     }
@@ -258,12 +324,12 @@ public abstract class AbstractFuture<V> implements ListenableFuture<V> {
   private static final class Listener {
     final Runnable command;
     final Executor executor;
-    
+
     Listener(Runnable command, Executor executor) {
       this.command = checkNotNull(command);
       this.executor = checkNotNull(executor);
     }
-    
+
     void execute() {
       try {
         executor.execute(command);
@@ -287,19 +353,25 @@ public abstract class AbstractFuture<V> implements ListenableFuture<V> {
         return;
       }
 
-      if (delegate instanceof TrustedFuture) {
+      if (delegate instanceof AbstractFuture) {
         AbstractFuture<? extends V> other = (AbstractFuture<? extends V>) delegate;
         value = other.value;
         throwable = other.throwable;
-        mayInterruptIfRunning = other.mayInterruptIfRunning;
+        // don't copy the mayInterruptIfRunning bit, for consistency with the server, to ensure that
+        // interruptTask() is called if and only if the bit is true and because we cannot infer the
+        // interrupt status from non AbstractFuture futures.
         state = other.state;
 
         notifyAndClearListeners();
         return;
       }
 
+      /*
+       * Almost everything in GWT is an AbstractFuture (which is as good as TrustedFuture under
+       * GWT). But ImmediateFuture and UncheckedThrowingFuture aren't, so we still need this case.
+       */
       try {
-        forceSet(getUninterruptibly(delegate));
+        forceSet(getDone(delegate));
       } catch (ExecutionException exception) {
         forceSetException(exception.getCause());
       } catch (CancellationException cancellation) {

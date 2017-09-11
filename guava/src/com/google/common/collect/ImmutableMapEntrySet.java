@@ -16,12 +16,16 @@
 
 package com.google.common.collect;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import com.google.common.annotations.GwtCompatible;
 import com.google.common.annotations.GwtIncompatible;
-
+import com.google.j2objc.annotations.Weak;
 import java.io.Serializable;
 import java.util.Map.Entry;
-
+import java.util.Spliterator;
+import java.util.Spliterators;
+import java.util.function.Consumer;
 import javax.annotation.Nullable;
 
 /**
@@ -33,9 +37,9 @@ import javax.annotation.Nullable;
 @GwtCompatible(emulated = true)
 abstract class ImmutableMapEntrySet<K, V> extends ImmutableSet<Entry<K, V>> {
   static final class RegularEntrySet<K, V> extends ImmutableMapEntrySet<K, V> {
-    private final transient ImmutableMap<K, V> map;
+    @Weak private final transient ImmutableMap<K, V> map;
     private final transient Entry<K, V>[] entries;
-    
+
     RegularEntrySet(ImmutableMap<K, V> map, Entry<K, V>[] entries) {
       this.map = map;
       this.entries = entries;
@@ -48,15 +52,28 @@ abstract class ImmutableMapEntrySet<K, V> extends ImmutableSet<Entry<K, V>> {
 
     @Override
     public UnmodifiableIterator<Entry<K, V>> iterator() {
-      return asList().iterator();
+      return Iterators.forArray(entries);
+    }
+
+    @Override
+    public Spliterator<Entry<K, V>> spliterator() {
+      return Spliterators.spliterator(entries, ImmutableSet.SPLITERATOR_CHARACTERISTICS);
+    }
+
+    @Override
+    public void forEach(Consumer<? super Entry<K, V>> action) {
+      checkNotNull(action);
+      for (Entry<K, V> entry : entries) {
+        action.accept(entry);
+      }
     }
 
     @Override
     ImmutableList<Entry<K, V>> createAsList() {
-      return new RegularImmutableAsList<Entry<K, V>>(this, entries);
+      return new RegularImmutableAsList<>(this, entries);
     }
   }
-  
+
   ImmutableMapEntrySet() {}
 
   abstract ImmutableMap<K, V> map();
@@ -82,7 +99,7 @@ abstract class ImmutableMapEntrySet<K, V> extends ImmutableSet<Entry<K, V>> {
   }
 
   @Override
-  @GwtIncompatible("not used in GWT")
+  @GwtIncompatible // not used in GWT
   boolean isHashCodeFast() {
     return map().isHashCodeFast();
   }
@@ -92,21 +109,24 @@ abstract class ImmutableMapEntrySet<K, V> extends ImmutableSet<Entry<K, V>> {
     return map().hashCode();
   }
 
-  @GwtIncompatible("serialization")
+  @GwtIncompatible // serialization
   @Override
   Object writeReplace() {
-    return new EntrySetSerializedForm<K, V>(map());
+    return new EntrySetSerializedForm<>(map());
   }
 
-  @GwtIncompatible("serialization")
+  @GwtIncompatible // serialization
   private static class EntrySetSerializedForm<K, V> implements Serializable {
     final ImmutableMap<K, V> map;
+
     EntrySetSerializedForm(ImmutableMap<K, V> map) {
       this.map = map;
     }
+
     Object readResolve() {
       return map.entrySet();
     }
+
     private static final long serialVersionUID = 0;
   }
 }

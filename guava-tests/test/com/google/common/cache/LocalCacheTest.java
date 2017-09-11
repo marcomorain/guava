@@ -27,6 +27,7 @@ import static com.google.common.cache.TestingRemovalListeners.queuingRemovalList
 import static com.google.common.cache.TestingWeighers.constantWeigher;
 import static com.google.common.collect.Lists.newArrayList;
 import static com.google.common.collect.Maps.immutableEntry;
+import static com.google.common.truth.Truth.assertThat;
 import static java.util.concurrent.TimeUnit.MINUTES;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
@@ -58,11 +59,6 @@ import com.google.common.testing.FakeTicker;
 import com.google.common.testing.NullPointerTester;
 import com.google.common.testing.SerializableTester;
 import com.google.common.testing.TestLogHandler;
-
-import junit.framework.Test;
-import junit.framework.TestCase;
-import junit.framework.TestSuite;
-
 import java.io.Serializable;
 import java.lang.ref.Reference;
 import java.lang.ref.ReferenceQueue;
@@ -78,26 +74,110 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.logging.LogRecord;
+import junit.framework.Test;
+import junit.framework.TestCase;
+import junit.framework.TestSuite;
 
 /**
  * @author Charles Fry
  */
+@SuppressWarnings("GuardedBy") // TODO(b/35466881): Fix or suppress.
 public class LocalCacheTest extends TestCase {
+  private static class TestStringCacheGenerator extends TestStringMapGenerator {
+    private final CacheBuilder<? super String, ? super String> builder;
+
+    TestStringCacheGenerator(CacheBuilder<? super String, ? super String> builder) {
+      this.builder = builder;
+    }
+
+    @Override
+    protected Map<String, String> create(Entry<String, String>[] entries) {
+      LocalCache<String, String> map = makeLocalCache(builder);
+      for (Entry<String, String> entry : entries) {
+        map.put(entry.getKey(), entry.getValue());
+      }
+      return map;
+    }
+  }
 
   public static Test suite() {
     TestSuite suite = new TestSuite();
     suite.addTestSuite(LocalCacheTest.class);
-    suite.addTest(MapTestSuiteBuilder.using(new TestStringMapGenerator() {
-          @Override public Map<String, String> create(
-              Entry<String, String>[] entries) {
-            LocalCache<String, String> map = makeLocalCache(createCacheBuilder());
-            for (Entry<String, String> entry : entries) {
-              map.put(entry.getKey(), entry.getValue());
-            }
-            return map;
-          }
-
-        }).named("LocalCache with defaults")
+    suite.addTest(MapTestSuiteBuilder
+        .using(new TestStringCacheGenerator(createCacheBuilder()))
+        .named("LocalCache with defaults")
+        .withFeatures(CollectionSize.ANY, MapFeature.GENERAL_PURPOSE,
+            CollectionFeature.SUPPORTS_ITERATOR_REMOVE)
+        .createTestSuite());
+    suite.addTest(MapTestSuiteBuilder
+        .using(new TestStringCacheGenerator(
+            createCacheBuilder().concurrencyLevel(1)))
+        .named("LocalCache with concurrencyLevel[1]")
+        .withFeatures(CollectionSize.ANY, MapFeature.GENERAL_PURPOSE,
+            CollectionFeature.SUPPORTS_ITERATOR_REMOVE)
+        .createTestSuite());
+    suite.addTest(MapTestSuiteBuilder
+        .using(new TestStringCacheGenerator(
+            createCacheBuilder().maximumSize(Integer.MAX_VALUE)))
+        .named("LocalCache with maximumSize")
+        .withFeatures(CollectionSize.ANY, MapFeature.GENERAL_PURPOSE,
+            CollectionFeature.SUPPORTS_ITERATOR_REMOVE)
+        .createTestSuite());
+    suite.addTest(MapTestSuiteBuilder
+        .using(new TestStringCacheGenerator(
+            createCacheBuilder()
+                .maximumWeight(Integer.MAX_VALUE)
+                .weigher(new SerializableWeigher<String, String>())))
+        .named("LocalCache with maximumWeight")
+        .withFeatures(CollectionSize.ANY, MapFeature.GENERAL_PURPOSE,
+            CollectionFeature.SUPPORTS_ITERATOR_REMOVE)
+        .createTestSuite());
+    suite.addTest(MapTestSuiteBuilder
+        .using(new TestStringCacheGenerator(
+            createCacheBuilder().weakKeys()))
+        .named("LocalCache with weakKeys") // keys are string literals and won't be GC'd
+        .withFeatures(CollectionSize.ANY, MapFeature.GENERAL_PURPOSE,
+            CollectionFeature.SUPPORTS_ITERATOR_REMOVE)
+        .createTestSuite());
+    suite.addTest(MapTestSuiteBuilder
+        .using(new TestStringCacheGenerator(
+            createCacheBuilder().weakValues()))
+        .named("LocalCache with weakValues") // values are string literals and won't be GC'd
+        .withFeatures(CollectionSize.ANY, MapFeature.GENERAL_PURPOSE,
+            CollectionFeature.SUPPORTS_ITERATOR_REMOVE)
+        .createTestSuite());
+    suite.addTest(MapTestSuiteBuilder
+        .using(new TestStringCacheGenerator(
+            createCacheBuilder().softValues()))
+        .named("LocalCache with softValues") // values are string literals and won't be GC'd
+        .withFeatures(CollectionSize.ANY, MapFeature.GENERAL_PURPOSE,
+            CollectionFeature.SUPPORTS_ITERATOR_REMOVE)
+        .createTestSuite());
+    suite.addTest(MapTestSuiteBuilder
+        .using(new TestStringCacheGenerator(
+            createCacheBuilder().expireAfterAccess(1, SECONDS).ticker(new SerializableTicker())))
+        .named("LocalCache with expireAfterAccess") // SerializableTicker never advances
+        .withFeatures(CollectionSize.ANY, MapFeature.GENERAL_PURPOSE,
+            CollectionFeature.SUPPORTS_ITERATOR_REMOVE)
+        .createTestSuite());
+    suite.addTest(MapTestSuiteBuilder
+        .using(new TestStringCacheGenerator(
+            createCacheBuilder().expireAfterWrite(1, SECONDS).ticker(new SerializableTicker())))
+        .named("LocalCache with expireAfterWrite") // SerializableTicker never advances
+        .withFeatures(CollectionSize.ANY, MapFeature.GENERAL_PURPOSE,
+            CollectionFeature.SUPPORTS_ITERATOR_REMOVE)
+        .createTestSuite());
+    suite.addTest(MapTestSuiteBuilder
+        .using(new TestStringCacheGenerator(
+            createCacheBuilder()
+                .removalListener(new SerializableRemovalListener<String, String>())))
+        .named("LocalCache with removalListener")
+        .withFeatures(CollectionSize.ANY, MapFeature.GENERAL_PURPOSE,
+            CollectionFeature.SUPPORTS_ITERATOR_REMOVE)
+        .createTestSuite());
+    suite.addTest(MapTestSuiteBuilder
+        .using(new TestStringCacheGenerator(createCacheBuilder().recordStats()))
+        .named("LocalCache with recordStats")
         .withFeatures(CollectionSize.ANY, MapFeature.GENERAL_PURPOSE,
             CollectionFeature.SUPPORTS_ITERATOR_REMOVE)
         .createTestSuite());
@@ -139,11 +219,11 @@ public class LocalCacheTest extends TestCase {
 
   private static <K, V> LocalCache<K, V> makeLocalCache(
       CacheBuilder<? super K, ? super V> builder) {
-    return new LocalCache<K, V>(builder, null);
+    return new LocalCache<>(builder, null);
   }
 
   private static CacheBuilder<Object, Object> createCacheBuilder() {
-    return new CacheBuilder<Object, Object>();
+    return CacheBuilder.newBuilder();
   }
 
   // constructor tests
@@ -169,7 +249,7 @@ public class LocalCacheTest extends TestCase {
     assertEquals(4, map.concurrencyLevel);
 
     // concurrency level
-    assertEquals(4, map.segments.length);
+    assertThat(map.segments).hasLength(4);
     // initial capacity / concurrency level
     assertEquals(16 / map.segments.length, map.segments[0].table.length());
 
@@ -234,7 +314,7 @@ public class LocalCacheTest extends TestCase {
   private static void checkConcurrencyLevel(int concurrencyLevel, int segmentCount) {
     LocalCache<Object, Object> map =
         makeLocalCache(createCacheBuilder().concurrencyLevel(concurrencyLevel));
-    assertEquals(segmentCount, map.segments.length);
+    assertThat(map.segments).hasLength(segmentCount);
   }
 
   public void testSetInitialCapacity() {
@@ -560,6 +640,7 @@ public class LocalCacheTest extends TestCase {
     assertEquals(1, segment.count);
   }
 
+  @AndroidIncompatible // Perhaps emulator clock does not update between the two get() calls?
   public void testComputeExpiredEntry() throws ExecutionException {
     CacheBuilder<Object, Object> builder = createCacheBuilder()
         .expireAfterWrite(1, TimeUnit.NANOSECONDS);
@@ -1276,7 +1357,7 @@ public class LocalCacheTest extends TestCase {
     int index = hash & (table.length() - 1);
 
     DummyEntry<Object, Object> entry = DummyEntry.create(key, hash, null);
-    LoadingValueReference<Object, Object> valueRef = new LoadingValueReference<Object, Object>();
+    LoadingValueReference<Object, Object> valueRef = new LoadingValueReference<>();
     entry.setValueReference(valueRef);
 
     // absent
@@ -1313,7 +1394,7 @@ public class LocalCacheTest extends TestCase {
     // replaced
     Object value4 = new Object();
     DummyValueReference<Object, Object> value3Ref = DummyValueReference.create(value3);
-    valueRef = new LoadingValueReference<Object, Object>(value3Ref);
+    valueRef = new LoadingValueReference<>(value3Ref);
     entry.setValueReference(valueRef);
     table.set(index, entry);
     assertSame(value3, segment.get(key, hash));
@@ -1485,6 +1566,14 @@ public class LocalCacheTest extends TestCase {
     }
   }
 
+  public void testGetOrDefault() {
+    LocalCache<Object, Object> map =
+        makeLocalCache(createCacheBuilder().concurrencyLevel(1).initialCapacity(1));
+    map.put(1, 1);
+    assertEquals(1, map.getOrDefault(1, 2));
+    assertEquals(2, map.getOrDefault(2, 2));
+  }
+
   public void testPutCausesExpansion() {
     for (int count = 1; count <= 100; count++) {
       LocalCache<Object, Object> map =
@@ -1642,6 +1731,42 @@ public class LocalCacheTest extends TestCase {
       assertTrue(segment.count <= originalCount);
       assertEquals(originalMap, ImmutableMap.copyOf(map));
     }
+  }
+
+  public void testRemoveIfWithConcurrentModification() {
+    LocalCache<Integer, Integer> map =
+        makeLocalCache(createCacheBuilder().concurrencyLevel(1).initialCapacity(1));
+    map.put(1, 1);
+    map.put(2, 1);
+    map.put(3, 1);
+    map.entrySet()
+        .removeIf(
+            entry -> {
+              if (entry.getValue().equals(1)) {
+                map.put(entry.getKey(), 2);
+                return true;
+              } else {
+                return false;
+              }
+            });
+    assertEquals(3, map.size());
+    assertFalse(map.containsValue(1));
+  }
+
+  public void testRemoveIfWithConcurrentRemoval() {
+    LocalCache<Integer, Integer> map =
+        makeLocalCache(createCacheBuilder().concurrencyLevel(1).initialCapacity(1));
+    map.put(0, 1);
+    map.put(1, 1);
+    map.put(2, 1);
+    map.entrySet()
+        .removeIf(
+            entry -> {
+              assertThat(entry.getValue()).isNotNull();
+              map.remove((entry.getKey() + 1) % 3);
+              return false;
+            });
+    assertEquals(1, map.size());
   }
 
   private static <K, V> int countLiveEntries(LocalCache<K, V> map, long now) {
@@ -1823,7 +1948,7 @@ public class LocalCacheTest extends TestCase {
     Object key = new Object();
     int hash = map.hash(key);
     DummyEntry<Object, Object> entry = DummyEntry.create(key, hash, null);
-    LoadingValueReference<Object, Object> valueRef = new LoadingValueReference<Object, Object>();
+    LoadingValueReference<Object, Object> valueRef = new LoadingValueReference<>();
     entry.setValueReference(valueRef);
 
     // absent
@@ -1841,7 +1966,7 @@ public class LocalCacheTest extends TestCase {
     // active
     Object value = new Object();
     DummyValueReference<Object, Object> previousRef = DummyValueReference.create(value);
-    valueRef = new LoadingValueReference<Object, Object>(previousRef);
+    valueRef = new LoadingValueReference<>(previousRef);
     entry.setValueReference(valueRef);
     table.set(0, entry);
     segment.count = 1;
@@ -2248,7 +2373,7 @@ public class LocalCacheTest extends TestCase {
       it.next();
       it.remove();
     }
-    segment.evictEntries();
+    segment.evictEntries(entry);
     assertEquals(maxSize, map.size());
     assertEquals(originalMap, map);
   }
@@ -2388,8 +2513,8 @@ public class LocalCacheTest extends TestCase {
 
   public void testSerializationProxyLoading() {
     CacheLoader<Object, Object> loader = new SerializableCacheLoader();
-    RemovalListener<Object, Object> listener = new SerializableRemovalListener<Object, Object>();
-    SerializableWeigher<Object, Object> weigher = new SerializableWeigher<Object, Object>();
+    RemovalListener<Object, Object> listener = new SerializableRemovalListener<>();
+    SerializableWeigher<Object, Object> weigher = new SerializableWeigher<>();
     Ticker ticker = new SerializableTicker();
     @SuppressWarnings("unchecked") // createMock
     LocalLoadingCache<Object, Object> one = (LocalLoadingCache) CacheBuilder.newBuilder()
@@ -2444,8 +2569,8 @@ public class LocalCacheTest extends TestCase {
   }
 
   public void testSerializationProxyManual() {
-    RemovalListener<Object, Object> listener = new SerializableRemovalListener<Object, Object>();
-    SerializableWeigher<Object, Object> weigher = new SerializableWeigher<Object, Object>();
+    RemovalListener<Object, Object> listener = new SerializableRemovalListener<>();
+    SerializableWeigher<Object, Object> weigher = new SerializableWeigher<>();
     Ticker ticker = new SerializableTicker();
     @SuppressWarnings("unchecked") // createMock
     LocalManualCache<Object, Object> one = (LocalManualCache) CacheBuilder.newBuilder()
@@ -2575,7 +2700,7 @@ public class LocalCacheTest extends TestCase {
     }
 
     public static <K, V> DummyEntry<K, V> create(K key, int hash, ReferenceEntry<K, V> next) {
-      return new DummyEntry<K, V>(key, hash, next);
+      return new DummyEntry<>(key, hash, next);
     }
 
     public void clearKey() {
@@ -2695,11 +2820,11 @@ public class LocalCacheTest extends TestCase {
     }
 
     public static <K, V> DummyValueReference<K, V> create(V value) {
-      return new DummyValueReference<K, V>(value);
+      return new DummyValueReference<>(value);
     }
 
     public static <K, V> DummyValueReference<K, V> createLoading() {
-      return new DummyValueReference<K, V>();
+      return new DummyValueReference<>();
     }
 
     @Override

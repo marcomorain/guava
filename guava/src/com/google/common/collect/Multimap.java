@@ -16,13 +16,16 @@
 
 package com.google.common.collect;
 
-import com.google.common.annotations.GwtCompatible;
+import static com.google.common.base.Preconditions.checkNotNull;
 
+import com.google.common.annotations.GwtCompatible;
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
+import com.google.errorprone.annotations.CompatibleWith;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
+import java.util.function.BiConsumer;
 import javax.annotation.Nullable;
 
 /**
@@ -120,8 +123,8 @@ import javax.annotation.Nullable;
  * <li>There is no need to populate an empty collection before adding an entry
  *     with {@link #put put}.
  * <li>{@code get} never returns {@code null}, only an empty collection.
- * <li>A key is contained in the multimap if and only if it maps to at least 
- *     one value. Any operation that causes a key to have zero associated 
+ * <li>A key is contained in the multimap if and only if it maps to at least
+ *     one value. Any operation that causes a key to have zero associated
  *     values has the effect of <i>removing</i> that key from the multimap.
  * <li>The total entry count is available as {@link #size}.
  * <li>Many complex operations become easier; for example, {@code
@@ -142,10 +145,10 @@ import javax.annotation.Nullable;
  * to multimaps.
  *
  * <h3>Other Notes</h3>
- * 
- * <p>As with {@code Map}, the behavior of a {@code Multimap} is not specified 
- * if key objects already present in the multimap change in a manner that 
- * affects {@code equals} comparisons.  Use caution if mutable objects are used 
+ *
+ * <p>As with {@code Map}, the behavior of a {@code Multimap} is not specified
+ * if key objects already present in the multimap change in a manner that
+ * affects {@code equals} comparisons.  Use caution if mutable objects are used
  * as keys in a {@code Multimap}.
  *
  * <p>All methods that modify the multimap are optional. The view collections
@@ -154,11 +157,11 @@ import javax.annotation.Nullable;
  * UnsupportedOperationException}.
  *
  * <p>See the Guava User Guide article on <a href=
- * "http://code.google.com/p/guava-libraries/wiki/NewCollectionTypesExplained#Multimap">
+ * "https://github.com/google/guava/wiki/NewCollectionTypesExplained#multimap">
  * {@code Multimap}</a>.
  *
  * @author Jared Levy
- * @since 2.0 (imported from Google Collections Library)
+ * @since 2.0
  */
 @GwtCompatible
 public interface Multimap<K, V> {
@@ -184,19 +187,21 @@ public interface Multimap<K, V> {
    * Returns {@code true} if this multimap contains at least one key-value pair
    * with the key {@code key}.
    */
-  boolean containsKey(@Nullable Object key);
+  boolean containsKey(@CompatibleWith("K") @Nullable Object key);
 
   /**
    * Returns {@code true} if this multimap contains at least one key-value pair
    * with the value {@code value}.
    */
-  boolean containsValue(@Nullable Object value);
+  boolean containsValue(@CompatibleWith("V") @Nullable Object value);
 
   /**
    * Returns {@code true} if this multimap contains at least one key-value pair
    * with the key {@code key} and the value {@code value}.
    */
-  boolean containsEntry(@Nullable Object key, @Nullable Object value);
+  boolean containsEntry(
+      @CompatibleWith("K") @Nullable Object key,
+      @CompatibleWith("V") @Nullable Object value);
 
   // Modification Operations
 
@@ -212,6 +217,7 @@ public interface Multimap<K, V> {
    *     {@code false} if the multimap already contained the key-value pair and
    *     doesn't allow duplicates
    */
+  @CanIgnoreReturnValue
   boolean put(@Nullable K key, @Nullable V value);
 
   /**
@@ -222,7 +228,10 @@ public interface Multimap<K, V> {
    *
    * @return {@code true} if the multimap changed
    */
-  boolean remove(@Nullable Object key, @Nullable Object value);
+  @CanIgnoreReturnValue
+  boolean remove(
+      @CompatibleWith("K") @Nullable Object key,
+      @CompatibleWith("V") @Nullable Object value);
 
   // Bulk Operations
 
@@ -230,15 +239,16 @@ public interface Multimap<K, V> {
    * Stores a key-value pair in this multimap for each of {@code values}, all
    * using the same key, {@code key}. Equivalent to (but expected to be more
    * efficient than): <pre>   {@code
-   * 
+   *
    *   for (V value : values) {
    *     put(key, value);
    *   }}</pre>
-   * 
+   *
    * <p>In particular, this is a no-op if {@code values} is empty.
    *
    * @return {@code true} if the multimap changed
    */
+  @CanIgnoreReturnValue
   boolean putAll(@Nullable K key, Iterable<? extends V> values);
 
   /**
@@ -247,13 +257,14 @@ public interface Multimap<K, V> {
    *
    * @return {@code true} if the multimap changed
    */
+  @CanIgnoreReturnValue
   boolean putAll(Multimap<? extends K, ? extends V> multimap);
 
   /**
    * Stores a collection of values with the same key, replacing any existing
    * values for that key.
-   * 
-   * <p>If {@code values} is empty, this is equivalent to 
+   *
+   * <p>If {@code values} is empty, this is equivalent to
    * {@link #removeAll(Object) removeAll(key)}.
    *
    * @return the collection of replaced values, or an empty collection if no
@@ -261,20 +272,22 @@ public interface Multimap<K, V> {
    *     <i>may</i> be modifiable, but updating it will have no effect on the
    *     multimap.
    */
+  @CanIgnoreReturnValue
   Collection<V> replaceValues(@Nullable K key, Iterable<? extends V> values);
 
   /**
    * Removes all values associated with the key {@code key}.
-   * 
+   *
    * <p>Once this method returns, {@code key} will not be mapped to any values,
    * so it will not appear in {@link #keySet()}, {@link #asMap()}, or any other
-   * views. 
+   * views.
    *
    * @return the values that were removed (possibly empty). The returned
    *     collection <i>may</i> be modifiable, but updating it will have no
    *     effect on the multimap.
    */
-  Collection<V> removeAll(@Nullable Object key);
+  @CanIgnoreReturnValue
+  Collection<V> removeAll(@CompatibleWith("K") @Nullable Object key);
 
   /**
    * Removes all key-value pairs from the multimap, leaving it {@linkplain
@@ -286,7 +299,7 @@ public interface Multimap<K, V> {
 
   /**
    * Returns a view collection of the values associated with {@code key} in this
-   * multimap, if any. Note that when {@code containsKey(key)} is false, this 
+   * multimap, if any. Note that when {@code containsKey(key)} is false, this
    * returns an empty collection, not {@code null}.
    *
    * <p>Changes to the returned collection will update the underlying multimap,
@@ -338,6 +351,21 @@ public interface Multimap<K, V> {
   Collection<Map.Entry<K, V>> entries();
 
   /**
+   * Performs the given action for all key-value pairs contained in this multimap. If an ordering is
+   * specified by the {@code Multimap} implementation, actions will be performed in the order of
+   * iteration of {@link #entries()}. Exceptions thrown by the action are relayed to the caller.
+   *
+   * <p>To loop over all keys and their associated value collections, write
+   * {@code Multimaps.asMap(multimap).forEach((key, valueCollection) -> action())}.
+   *
+   * @since 21.0
+   */
+  default void forEach(BiConsumer<? super K, ? super V> action) {
+    checkNotNull(action);
+    entries().forEach(entry -> action.accept(entry.getKey(), entry.getValue()));
+  }
+
+  /**
    * Returns a view of this multimap as a {@code Map} from each distinct key
    * to the nonempty collection of that key's associated values. Note that
    * {@code this.asMap().get(k)} is equivalent to {@code this.get(k)} only when
@@ -382,7 +410,7 @@ public interface Multimap<K, V> {
    * not have the same hash codes, depending on the implementation. For
    * example, two {@link SetMultimap} instances with the same key-value
    * mappings will have the same {@code hashCode}, but the {@code hashCode}
-   * of {@link ListMultimap} instances depends on the ordering of the values 
+   * of {@link ListMultimap} instances depends on the ordering of the values
    * for each key.
    */
   @Override
