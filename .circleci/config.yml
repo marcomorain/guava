@@ -1,0 +1,24 @@
+version: 2
+jobs:
+  build:
+    docker:
+      - image: circleci/java:8
+    environment:
+      TERM: dumb
+      MAVEN_OPTS: "-Xmx1024m -Xms1024m -Dmaven.artifact.threads=8"
+    steps:
+      - checkout
+      - restore_cache:
+          key: maven-
+      - run: mvn --batch-mode compile test-compile
+      - run: mvn --batch-mode test --projects guava,guava-testlib,guava-tests
+      - save_cache:
+          key: maven-{{ epoch }}
+          paths:
+            - ~/.m2
+  #post:
+  #  - mkdir -p $CIRCLE_TEST_REPORTS/junit/
+  #  - find . -type f -regex ".*/target/surefire-reports/.*xml" -exec cp {} $CIRCLE_TEST_REPORTS/junit/ \;
+  #      - store_test_results:
+          #path: /tmp/test-results
+
